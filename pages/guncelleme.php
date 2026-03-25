@@ -377,6 +377,11 @@ require_once __DIR__ . '/../includes/header.php';
         <div style="font-size:48px;margin-bottom:12px;">✅</div>
         <div style="font-weight:700;font-size:16px;color:var(--text);">Sistem Güncel</div>
         <div style="color:var(--muted);font-size:13px;margin-top:6px;">En son sürümü kullanıyorsunuz.</div>
+        <div style="margin-top:16px;">
+            <button id="btn_yeniden_yukle" class="btn btn-secondary" style="display:none;" onclick="yenidenYukle()">
+                🔄 Mevcut Sürümü Yeniden Yükle
+            </button>
+        </div>
     </div>
 </div>
 
@@ -388,6 +393,10 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+function yenidenYukle() {
+    if (!confirm('v' + _uzak_versiyon + ' sürümü yeniden yüklenecek.\n\nMevcut dosyalar üzerine yazılacak, veriler korunacak.\n\nDevam edilsin mi?')) return;
+    guncellemeBaslat();
+}
 var _zipball_url    = '';
 var _uzak_versiyon  = '';
 var _assets         = [];
@@ -451,6 +460,8 @@ async function surumKontrol() {
             document.getElementById('stat_durum').style.borderLeftColor = 'var(--success)';
             document.getElementById('guncelleme_kart').style.display = 'none';
             document.getElementById('guncel_kart').style.display = '';
+            // Yeniden yükleme butonunu hazırla
+            document.getElementById('btn_yeniden_yukle').style.display = '';
         }
 
     } catch(e) {
