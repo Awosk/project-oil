@@ -366,9 +366,10 @@ function tumunuSecB(sec) { document.querySelectorAll('input[name="tablolar[]"]')
 function bLabelGuncelle(cb) {
     var lbl = document.getElementById('blbl_' + cb.value);
     if (!lbl) return;
-    if (cb.checked) { lbl.style.borderColor='var(--primary)'; lbl.style.background='#e8f0fe'; lbl.style.color='var(--primary)'; }
-    else { lbl.style.borderColor='var(--border)'; lbl.style.background='#fff'; lbl.style.color='var(--text)'; }
+    if (cb.checked) { lbl.style.borderColor='var(--primary)'; lbl.style.background='var(--primary-bg-l)'; lbl.style.color='var(--primary-text)'; }
+    else { lbl.style.borderColor='var(--border)'; lbl.style.background='var(--card)'; lbl.style.color='var(--text)'; }
 }
+document.querySelectorAll('input[name="tablolar[]"]').forEach(cb => bLabelGuncelle(cb));
 </script>
 <?php endif; ?>
 
