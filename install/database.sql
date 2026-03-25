@@ -1,13 +1,13 @@
 -- Project Oil — Veritabanı Kurulum Dosyası
 -- Bu dosya kurulum sihirbazı tarafından otomatik olarak kullanılır.
+-- Tablolar yoksa oluşturulur, mevcutsa ve veri varsa dokunulmaz.
 -- Varsayılan kullanıcı yoktur; kurulum sırasında oluşturulur.
 
 SET NAMES utf8mb4;
 SET foreign_key_checks = 0;
 SET sql_mode = 'NO_AUTO_VALUE_ON_ZERO';
 
-DROP TABLE IF EXISTS `kullanicilar`;
-CREATE TABLE `kullanicilar` (
+CREATE TABLE IF NOT EXISTS `kullanicilar` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `ad_soyad` varchar(100) NOT NULL,
   `kullanici_adi` varchar(50) NOT NULL,
@@ -20,8 +20,7 @@ CREATE TABLE `kullanicilar` (
   UNIQUE KEY `kullanici_adi` (`kullanici_adi`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
-DROP TABLE IF EXISTS `lite_araclar`;
-CREATE TABLE `lite_araclar` (
+CREATE TABLE IF NOT EXISTS `lite_araclar` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `arac_turu` varchar(100) NOT NULL,
   `plaka` varchar(20) NOT NULL,
@@ -35,8 +34,7 @@ CREATE TABLE `lite_araclar` (
   CONSTRAINT `lite_araclar_ibfk_1` FOREIGN KEY (`olusturan_id`) REFERENCES `kullanicilar` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
-DROP TABLE IF EXISTS `lite_tesisler`;
-CREATE TABLE `lite_tesisler` (
+CREATE TABLE IF NOT EXISTS `lite_tesisler` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `firma_adi` varchar(200) NOT NULL,
   `firma_adresi` text NOT NULL,
@@ -48,8 +46,7 @@ CREATE TABLE `lite_tesisler` (
   CONSTRAINT `lite_tesisler_ibfk_1` FOREIGN KEY (`olusturan_id`) REFERENCES `kullanicilar` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
-DROP TABLE IF EXISTS `lite_urunler`;
-CREATE TABLE `lite_urunler` (
+CREATE TABLE IF NOT EXISTS `lite_urunler` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `urun_kodu` varchar(50) NOT NULL,
   `urun_adi` varchar(200) NOT NULL,
@@ -62,8 +59,7 @@ CREATE TABLE `lite_urunler` (
   CONSTRAINT `lite_urunler_ibfk_1` FOREIGN KEY (`olusturan_id`) REFERENCES `kullanicilar` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
-DROP TABLE IF EXISTS `lite_kayitlar`;
-CREATE TABLE `lite_kayitlar` (
+CREATE TABLE IF NOT EXISTS `lite_kayitlar` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `kayit_turu` enum('arac','tesis') NOT NULL,
   `arac_id` int(11) DEFAULT NULL,
@@ -93,8 +89,7 @@ CREATE TABLE `lite_kayitlar` (
   CONSTRAINT `lite_kayitlar_ibfk_4` FOREIGN KEY (`olusturan_id`) REFERENCES `kullanicilar` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
-DROP TABLE IF EXISTS `sistem_loglari`;
-CREATE TABLE `sistem_loglari` (
+CREATE TABLE IF NOT EXISTS `sistem_loglari` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `kullanici_id` int(11) DEFAULT NULL,
   `kullanici_adi` varchar(50) DEFAULT NULL,
@@ -113,8 +108,7 @@ CREATE TABLE `sistem_loglari` (
   CONSTRAINT `sistem_loglari_ibfk_1` FOREIGN KEY (`kullanici_id`) REFERENCES `kullanicilar` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
-DROP TABLE IF EXISTS `sistem_migrations`;
-CREATE TABLE `sistem_migrations` (
+CREATE TABLE IF NOT EXISTS `sistem_migrations` (
   `versiyon` varchar(20) NOT NULL,
   `uygulandi_tarih` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`versiyon`)
