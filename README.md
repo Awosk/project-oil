@@ -3,7 +3,7 @@
 ![GitHub repo size](https://img.shields.io/github/repo-size/Awosk/project-oil?style=for-the-badge)
 ![GitHub stars](https://img.shields.io/github/stars/Awosk/project-oil?style=for-the-badge)
 ![PHP Version](https://img.shields.io/badge/PHP-%E2%89%A5%208.0-777bb4?style=for-the-badge&logo=php)
-![License](https://img.shields.io/github/license/Awosk/project-oil?style=for-the-badge)
+![License](https://img.shields.io/github/license/Awosk/project-oil?color=blue&style=for-the-badge)
 
 ---
 
@@ -92,7 +92,7 @@ Geliştirmeleri ve geri bildirimleri her zaman memnuniyetle karşılıyoruz! Kat
 
 ## 📄 Lisans
 
-Bu proje **MIT Lisansı** ile lisanslanmıştır. Detaylar için projedeki `LICENSE` dosyasına göz atabilirsiniz.
+Bu proje **GNU GPL v3** Lisansı ile lisanslanmıştır. Kodun kopyalanması, değiştirilmesi veya dağıtılması durumunda türetilen projenin de açık kaynak kodlu ve GPL v3 lisanslı olması zorunludur. Daha fazla bilgi için projedeki `LICENSE` dosyasına göz atabilirsiniz.
 
 ---
 
