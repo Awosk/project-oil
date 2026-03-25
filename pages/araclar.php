@@ -98,9 +98,15 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <?php if (empty($arac_turleri)): ?>
-<div class="alert alert-warning">
-    ⚠️ Henüz araç türü tanımlanmamış. Araç ekleyebilmek için önce
-    <a href="arac_turleri.php" style="font-weight:700;">araç türü ekleyin</a>.
+<div style="background:var(--warning-l);border:1.5px solid var(--warning);border-radius:var(--r-sm);padding:16px 20px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:22px;">⚠️</span>
+        <div>
+            <div style="font-weight:700;color:var(--warning-text);font-size:14px;">Araç türü tanımlanmamış</div>
+            <div style="font-size:12px;color:var(--warning-text);opacity:.85;margin-top:2px;">Araç ekleyebilmek için önce en az bir araç türü oluşturmalısınız.</div>
+        </div>
+    </div>
+    <a href="arac_turleri.php" class="btn btn-sm" style="background:var(--warning);color:#fff;white-space:nowrap;">⚙️ Araç Türü Ekle →</a>
 </div>
 <?php endif; ?>
 

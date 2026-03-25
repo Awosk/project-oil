@@ -345,9 +345,15 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 
     <!-- Uyarı -->
-    <div class="alert alert-warning" style="margin-bottom:20px;">
-        ⚠️ Güncelleme öncesinde <strong>veritabanı yedeği</strong> almanız önerilir.
-        <a href="backup.php" target="_blank" style="color:var(--warning);font-weight:700;margin-left:6px;">→ Yedek Al</a>
+    <div style="background:var(--warning-l);border:1.5px solid var(--warning);border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:20px;">🛡️</span>
+            <div>
+                <div style="font-weight:700;color:var(--warning-text);font-size:13px;">Güncelleme öncesinde yedek almanız önerilir</div>
+                <div style="font-size:12px;color:var(--warning-text);opacity:.85;margin-top:2px;">Bir sorun oluşursa verilerinizi geri yükleyebilirsiniz.</div>
+            </div>
+        </div>
+        <a href="backup.php" target="_blank" class="btn btn-sm" style="background:var(--warning);color:#fff;white-space:nowrap;">💾 Yedek Al →</a>
     </div>
 
     <button class="btn btn-primary" id="btn_guncelle" onclick="guncellemeBaslat()">
