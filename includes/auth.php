@@ -108,7 +108,7 @@ function aktifKullaniciKontrol($pdo): void {
     if (!isset($_SESSION['kullanici_id'])) return;
 
     $son_kontrol = $_SESSION['aktif_kontrol_zaman'] ?? 0;
-    if (time() - $son_kontrol < 60) return; // 60 saniyede bir kontrol
+    if (time() - $son_kontrol < 20) return; // 60 saniyede bir kontrol
 
     $_SESSION['aktif_kontrol_zaman'] = time();
 

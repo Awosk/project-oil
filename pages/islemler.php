@@ -287,7 +287,8 @@ require_once __DIR__ . '/../includes/header.php';
 
             <div class="islem-sag">
                 <div class="islem-miktar"><?= formatliMiktar($k['miktar']) ?></div>
-                <div class="islem-tarih">📅 <?= formatliTarih($k['tarih']) ?></div>
+                <div class="islem-tarih">🛢️ <?= formatliTarih($k['tarih']) ?></div>
+                <div class="islem-giris-tarihi">🕐 <?= formatliTarih($k['olusturma_tarihi']) ?></div>
                 <div class="islem-kisi">👤 <?= htmlspecialchars($k['ad_soyad'] ?? '-') ?></div>
                 <button onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>')"
                         style="margin-top:4px;background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);padding:0;"
@@ -360,6 +361,7 @@ require_once __DIR__ . '/../includes/header.php';
 .islem-miktar { font-size:18px; font-weight:800; color:var(--primary-l); }
 .islem-tarih  { font-size:11px; color:var(--muted); margin-top:2px; }
 .islem-kisi   { font-size:11px; color:var(--muted); }
+.islem-giris-tarihi { font-size: 11px; color: var(--muted); margin-top: 1px; }
 </style>
 
 <!-- Açıklama Modal -->

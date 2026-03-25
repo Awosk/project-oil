@@ -158,7 +158,8 @@ require_once __DIR__ . '/../includes/header.php';
                     <small><?= htmlspecialchars($k['urun_kodu']) ?></small>
                 </div>
                 <div class="kayit-meta">
-                    📅 <?= formatliTarih($k['tarih']) ?>
+                    🛢️ <strong title="Yağın verildiği tarih"><?= formatliTarih($k['tarih']) ?></strong>
+                    <span class="kayit-giris-tarihi">· 🕐 <?= formatliTarih($k['olusturma_tarihi']) ?></span>
                     · 👤 <?= htmlspecialchars($k['ad_soyad'] ?? '-') ?>
                     <?php if ($k['aciklama']): ?> · <?= htmlspecialchars($k['aciklama']) ?><?php endif; ?>
                 </div>

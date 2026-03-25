@@ -204,7 +204,8 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php endif; ?>
                 </div>
                 <div class="kayit-meta">
-                    📅 <?= formatliTarih($k['olusturma_tarihi']) ?>
+                    🛢️ <strong title="Yağın verildiği tarih"><?= formatliTarih($k['tarih']) ?></strong>
+                    <span class="kayit-giris-tarihi">· 🕐 <?= formatliTarih($k['olusturma_tarihi']) ?></span>
                     · 👤 <?= htmlspecialchars($k['ad_soyad'] ?? '-') ?>
                     <?php if ($k['yag_bakimi'] && $k['mevcut_km']): ?>
                     · 🛣️ <?= number_format($k['mevcut_km']) ?> KM
