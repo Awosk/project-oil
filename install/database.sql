@@ -162,6 +162,29 @@ CREATE TABLE IF NOT EXISTS `sifre_sifirlama` (
   CONSTRAINT `fk_sifre_sifirlama_kullanici` FOREIGN KEY (`kullanici_id`) REFERENCES `kullanicilar` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
 
+CREATE TABLE IF NOT EXISTS `mail_queue` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `to_email` varchar(150) NOT NULL,
+  `to_name` varchar(100) NOT NULL DEFAULT '',
+  `subject` varchar(255) NOT NULL,
+  `body` longtext NOT NULL,
+  `status` enum('pending','sent','failed','paused','cancelled') NOT NULL DEFAULT 'pending',
+  `attempt_count` tinyint(3) unsigned NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `sent_at` datetime DEFAULT NULL,
+  `hata_mesaji` text DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `status` (`status`),
+  KEY `created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci;
+ 
+-- sistem_ayarlar INSERT bloğuna şunları da ekle:
+INSERT IGNORE INTO `sistem_ayarlar` (`anahtar`, `deger`) VALUES
+('mail_rate_limit_adet',   '10'),
+('mail_rate_limit_dakika', '5'),
+('mail_cooldown_dakika',   '15'),
+('mail_cooldown_bitis',    '');
+
 CREATE TABLE IF NOT EXISTS `sistem_migrations` (
   `versiyon` varchar(20) NOT NULL,
   `uygulandi_tarih` datetime NOT NULL DEFAULT current_timestamp(),

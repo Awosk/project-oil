@@ -42,14 +42,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['smtp_kaydet'])) {
     header('Location: sistem_ayarlar.php'); exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rate_limit_kaydet'])) {
+    csrfDogrula();
+    $rl_adet    = max(1, (int)($_POST['rate_limit_adet']   ?? 10));
+    $rl_dakika  = max(1, (int)($_POST['rate_limit_dakika'] ?? 5));
+    $cl_dakika  = max(1, (int)($_POST['cooldown_dakika']   ?? 15));
+ 
+    $stmt = $pdo->prepare("INSERT INTO sistem_ayarlar (anahtar, deger) VALUES (?, ?) ON DUPLICATE KEY UPDATE deger = VALUES(deger)");
+    $stmt->execute(['mail_rate_limit_adet',   $rl_adet]);
+    $stmt->execute(['mail_rate_limit_dakika', $rl_dakika]);
+    $stmt->execute(['mail_cooldown_dakika',   $cl_dakika]);
+    flash('Rate limit ayarları kaydedildi.');
+    header('Location: sistem_ayarlar.php'); exit;
+}
+
+// ── COOLDOWN İPTAL ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cooldown_iptal'])) {
+    csrfDogrula();
+    $pdo->prepare("UPDATE sistem_ayarlar SET deger = '' WHERE anahtar = 'mail_cooldown_bitis'")->execute();
+    $pdo->exec("UPDATE mail_queue SET status = 'cancelled' WHERE status = 'paused'");
+    flash('Cooldown iptal edildi. Paused mailler iptal edildi.');
+    header('Location: sistem_ayarlar.php'); exit;
+}
+
 // ── TEST MAILI GÖNDER ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['test_mail'])) {
     csrfDogrula();
     $test_email = trim($_POST['test_email'] ?? '');
     if ($test_email && filter_var($test_email, FILTER_VALIDATE_EMAIL)) {
-        $sonuc = mailGonder($pdo, $test_email, 'Test', '🧪 SMTP Test — ' . SITE_ADI,
-            '<p>Bu bir test mailidir. SMTP ayarlarınız doğru çalışıyor!</p><p style="color:#666;font-size:13px;">Gönderim zamanı: ' . date('d.m.Y H:i:s') . '</p>'
-        );
+        $sonuc = testMailiGonder($pdo, $test_email);
         if ($sonuc['ok']) {
             flash('Test maili başarıyla gönderildi: ' . $test_email);
         } else {
@@ -85,6 +106,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bildirim_kaydet'])) {
 
 // Mevcut SMTP ayarlarını çek
 $smtp = smtpAyarlariGetir($pdo);
+$rate_limit_adet   = sistemAyarGetir($pdo, 'mail_rate_limit_adet',   '10');
+$rate_limit_dakika = sistemAyarGetir($pdo, 'mail_rate_limit_dakika', '5');
+$cooldown_dakika   = sistemAyarGetir($pdo, 'mail_cooldown_dakika',   '15');
+$cooldown_bitis    = sistemAyarGetir($pdo, 'mail_cooldown_bitis',    '');
 
 // Admin kullanıcıları çek
 $adminler = $pdo->query("SELECT id, ad_soyad, kullanici_adi, email FROM kullanicilar WHERE rol = 'admin' AND aktif = 1 ORDER BY ad_soyad")->fetchAll();
@@ -215,6 +240,50 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <?php endif; ?>
 </div>
+
+<!-- ── RATE LIMIT AYARLARI ── -->
+<div class="card">
+    <div class="card-title">⏱️ Mail Rate Limit & Cooldown</div>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:18px;">
+        Belirli süre içinde çok fazla mail gönderilirse sistem otomatik olarak duraklatılır ve adminlere uyarı maili gönderilir.
+    </p>
+ 
+    <?php if ($cooldown_bitis && strtotime($cooldown_bitis) > time()): ?>
+    <div class="warn-box" style="margin-bottom:18px;">
+        ⚠️ <strong>Cooldown Aktif!</strong>
+        Mail gönderimi duraklatıldı. Bitiş: <strong><?= date('d.m.Y H:i:s', strtotime($cooldown_bitis)) ?></strong>
+        <form method="post" style="display:inline;margin-left:12px;">
+            <?= csrfInput() ?>
+            <button type="submit" name="cooldown_iptal" class="btn btn-sm btn-danger">✕ Cooldown'ı İptal Et</button>
+        </form>
+    </div>
+    <?php endif; ?>
+ 
+    <form method="post">
+        <?= csrfInput() ?>
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Limit — Kaç Mail *</label>
+                <input type="number" name="rate_limit_adet" value="<?= htmlspecialchars($rate_limit_adet) ?>" min="1" placeholder="10">
+                <div class="form-note">Bu kadar mail gönderilince rate limit devreye girer.</div>
+            </div>
+            <div class="form-group">
+                <label>Limit — Kaç Dakikada *</label>
+                <input type="number" name="rate_limit_dakika" value="<?= htmlspecialchars($rate_limit_dakika) ?>" min="1" placeholder="5">
+                <div class="form-note">Kaç dakikalık pencerede sayılsın.</div>
+            </div>
+            <div class="form-group">
+                <label>Cooldown Süresi (Dakika) *</label>
+                <input type="number" name="cooldown_dakika" value="<?= htmlspecialchars($cooldown_dakika) ?>" min="1" placeholder="15">
+                <div class="form-note">Rate limit aşılınca kaç dakika duraklatılsın.</div>
+            </div>
+        </div>
+        <div style="margin-top:14px;">
+            <button type="submit" name="rate_limit_kaydet" class="btn btn-primary">💾 Kaydet</button>
+        </div>
+    </form>
+</div>
+
 
 <!-- ── BİLDİRİM FİLTRELERİ ── -->
 <div class="card">

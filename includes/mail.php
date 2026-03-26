@@ -10,16 +10,19 @@
  */
 
 // =====================================================
-// MAIL SERVİSİ — PHPMailer wrapper
+// MAIL SERVİSİ — Asenkron kuyruk tabanlı
 // =====================================================
 
 use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
 use PHPMailer\PHPMailer\Exception as MailException;
 
 require_once __DIR__ . '/phpmailer/PHPMailer.php';
 require_once __DIR__ . '/phpmailer/SMTP.php';
 require_once __DIR__ . '/phpmailer/Exception.php';
+
+// ─────────────────────────────────────────────
+// YARDIMCI FONKSİYONLAR
+// ─────────────────────────────────────────────
 
 /**
  * Sistem ayarlarından SMTP konfigürasyonunu çeker.
@@ -38,26 +41,66 @@ function smtpAyarlariGetir($pdo): array {
 }
 
 /**
+ * Belirli bir ayar anahtarının değerini döner.
+ */
+function sistemAyarGetir($pdo, string $anahtar, string $varsayilan = ''): string {
+    try {
+        $stmt = $pdo->prepare("SELECT deger FROM sistem_ayarlar WHERE anahtar = ?");
+        $stmt->execute([$anahtar]);
+        $deger = $stmt->fetchColumn();
+        return $deger !== false ? (string)$deger : $varsayilan;
+    } catch (Exception $e) {
+        return $varsayilan;
+    }
+}
+
+/**
  * SMTP aktif mi?
  */
 function smtpAktifMi($pdo): bool {
+    return sistemAyarGetir($pdo, 'smtp_aktif') === '1';
+}
+
+/**
+ * Cooldown aktif mi?
+ */
+function cooldownAktifMi($pdo): bool {
+    $bitis = sistemAyarGetir($pdo, 'mail_cooldown_bitis');
+    if (!$bitis) return false;
+    return strtotime($bitis) > time();
+}
+
+// ─────────────────────────────────────────────
+// KUYRUK SİSTEMİ
+// ─────────────────────────────────────────────
+
+/**
+ * Maili kuyruğa ekler. Direkt göndermez.
+ * Cooldown aktifse 'paused' olarak ekler.
+ */
+function mailQueueEkle($pdo, string $to_email, string $to_name, string $subject, string $body): bool {
+    if (!smtpAktifMi($pdo)) return false;
+    if (!filter_var($to_email, FILTER_VALIDATE_EMAIL)) return false;
+
+    $status = cooldownAktifMi($pdo) ? 'paused' : 'pending';
+
     try {
-        $deger = $pdo->query("SELECT deger FROM sistem_ayarlar WHERE anahtar = 'smtp_aktif'")->fetchColumn();
-        return $deger === '1';
+        $pdo->prepare("
+            INSERT INTO mail_queue (to_email, to_name, subject, body, status)
+            VALUES (?, ?, ?, ?, ?)
+        ")->execute([$to_email, $to_name, $subject, $body, $status]);
+        return true;
     } catch (Exception $e) {
+        error_log('mailQueueEkle hatası: ' . $e->getMessage());
         return false;
     }
 }
 
 /**
- * Mail gönder.
+ * Tek bir maili SMTP ile gönderir. Sadece worker ve kritik mailler kullanır.
  * @return array ['ok' => bool, 'hata' => string]
  */
-function mailGonder($pdo, string $alici_email, string $alici_ad, string $konu, string $icerik_html): array {
-    if (!smtpAktifMi($pdo)) {
-        return ['ok' => false, 'hata' => 'SMTP aktif değil'];
-    }
-
+function mailGonderSMTP($pdo, string $to_email, string $to_name, string $subject, string $body): array {
     $ayarlar = smtpAyarlariGetir($pdo);
 
     if (empty($ayarlar['smtp_host']) || empty($ayarlar['smtp_kullanici'])) {
@@ -70,54 +113,42 @@ function mailGonder($pdo, string $alici_email, string $alici_ad, string $konu, s
         $mail->Host       = $ayarlar['smtp_host'];
         $mail->SMTPAuth   = true;
         $mail->Username   = $ayarlar['smtp_kullanici'];
-        $mail->Password   = $ayarlar['smtp_sifre'];
-        $mail->SMTPSecure = $ayarlar['smtp_sifrelem'] === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Password   = $ayarlar['smtp_sifre'] ?? '';
+        $mail->SMTPSecure = ($ayarlar['smtp_sifrelem'] ?? 'tls') === 'ssl'
+            ? PHPMailer::ENCRYPTION_SMTPS
+            : PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = (int)($ayarlar['smtp_port'] ?? 587);
         $mail->CharSet    = 'UTF-8';
+        $mail->Timeout    = 5; // max 5 saniye
 
-        $gonderen_ad    = $ayarlar['smtp_ad']       ?: SITE_ADI;
+        $gonderen_ad    = $ayarlar['smtp_ad']       ?: (defined('SITE_ADI') ? SITE_ADI : 'Project Oil');
         $gonderen_email = $ayarlar['smtp_gonderen'] ?: $ayarlar['smtp_kullanici'];
 
         $mail->setFrom($gonderen_email, $gonderen_ad);
-        $mail->addAddress($alici_email, $alici_ad);
+        $mail->addAddress($to_email, $to_name);
 
         $mail->isHTML(true);
-        $mail->Subject = $konu;
-        $mail->Body    = mailSablonu($konu, $icerik_html);
-        $mail->AltBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $icerik_html));
+        $mail->Subject = $subject;
+        $mail->Body    = $body;
+        $mail->AltBody = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $body));
 
         $mail->send();
         return ['ok' => true, 'hata' => ''];
 
     } catch (MailException $e) {
-        error_log('Mail gönderme hatası: ' . $e->getMessage());
+        return ['ok' => false, 'hata' => $e->getMessage()];
+    } catch (Exception $e) {
         return ['ok' => false, 'hata' => $e->getMessage()];
     }
 }
 
-/**
- * Şifre sıfırlama maili gönder.
- */
-function sifreSifirlamaMailiGonder($pdo, array $kullanici, string $token): bool {
-    $link    = ROOT_URL . 'sifre_sifirlama.php?token=' . $token;
-    $icerik  = '
-        <p>Merhaba <strong>' . htmlspecialchars($kullanici['ad_soyad']) . '</strong>,</p>
-        <p>' . SITE_ADI . ' hesabınız için şifre sıfırlama talebinde bulunuldu.</p>
-        <p style="margin:24px 0;">
-            <a href="' . $link . '" style="background:#1e4d6b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;">
-                🔑 Şifremi Sıfırla
-            </a>
-        </p>
-        <p style="color:#666;font-size:13px;">Bu link <strong>30 dakika</strong> geçerlidir. Eğer bu talebi siz yapmadıysanız bu maili görmezden gelebilirsiniz.</p>
-        <p style="color:#666;font-size:12px;word-break:break-all;">Link çalışmıyorsa kopyalayıp tarayıcınıza yapıştırın:<br>' . $link . '</p>
-    ';
-
-    $sonuc = mailGonder($pdo, $kullanici['email'], $kullanici['ad_soyad'], '🔑 Şifre Sıfırlama — ' . SITE_ADI, $icerik);
-    return $sonuc['ok'];
-}
+// ─────────────────────────────────────────────
+// BİLDİRİM SİSTEMİ
+// ─────────────────────────────────────────────
 
 /**
- * Admin bildirim maili gönder.
+ * Admin bildirim maili kuyruğa ekler.
+ * Rate limit ve cooldown kontrolü yapar.
  */
 function adminBildirimGonder($pdo, string $aksiyon, string $modul, string $aciklama, ?array $kullanici_bilgi = null): void {
     if (!smtpAktifMi($pdo)) return;
@@ -140,70 +171,201 @@ function adminBildirimGonder($pdo, string $aksiyon, string $modul, string $acikl
 
         if (empty($alicilar)) return;
 
-        $aksiyon_etiket = [
-            'ekle'     => '➕ Ekleme',
-            'sil'      => '🗑️ Silme',
-            'guncelle' => '✏️ Güncelleme',
-            'giris'    => '🔐 Giriş',
-            'cikis'    => '🚪 Çıkış',
-        ][$aksiyon] ?? $aksiyon;
+        $konu   = _bildirimKonuOlustur($aksiyon, $modul);
+        $icerik = _bildirimIcerikOlustur($aksiyon, $modul, $aciklama, $kullanici_bilgi);
 
-        $modul_etiket = [
-            'arac'       => '🚗 Araç',
-            'tesis'      => '🏭 Tesis',
-            'arac_kayit' => '🛢️ Araç Yağ Kaydı',
-            'tesis_kayit'=> '🛢️ Tesis Yağ Kaydı',
-            'urun'       => '📦 Ürün',
-            'kullanici'  => '👤 Kullanıcı',
-            'auth'       => '🔐 Oturum',
-            'sistem'     => '⚙️ Sistem',
-            'islendi'    => '✅ Depoya İşlendi',
-        ][$modul] ?? $modul;
+        // ── COOLDOWN KONTROLÜ ──
+        if (cooldownAktifMi($pdo)) {
+            foreach ($alicilar as $alici) {
+                $pdo->prepare("
+                    INSERT INTO mail_queue (to_email, to_name, subject, body, status)
+                    VALUES (?, ?, ?, ?, 'paused')
+                ")->execute([$alici['email'], $alici['ad_soyad'], $konu, $icerik]);
+            }
+            return;
+        }
 
-        $yapan = $kullanici_bilgi
-            ? htmlspecialchars($kullanici_bilgi['ad_soyad'] ?? $kullanici_bilgi['adi'] ?? 'Bilinmiyor')
-            : 'Sistem';
+        // ── RATE LIMIT KONTROLÜ ──
+        $limit_adet   = (int)sistemAyarGetir($pdo, 'mail_rate_limit_adet', '10');
+        $limit_dakika = (int)sistemAyarGetir($pdo, 'mail_rate_limit_dakika', '5');
+        $cooldown_dk  = (int)sistemAyarGetir($pdo, 'mail_cooldown_dakika', '15');
 
-        $icerik = '
-            <table style="width:100%;border-collapse:collapse;font-size:14px;">
-                <tr>
-                    <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;width:140px;">İşlem</td>
-                    <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . $aksiyon_etiket . '</td>
-                </tr>
-                <tr>
-                    <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Modül</td>
-                    <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . $modul_etiket . '</td>
-                </tr>
-                <tr>
-                    <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Açıklama</td>
-                    <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . htmlspecialchars($aciklama) . '</td>
-                </tr>
-                <tr>
-                    <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Yapan</td>
-                    <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . $yapan . '</td>
-                </tr>
-                <tr>
-                    <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Tarih</td>
-                    <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . date('d.m.Y H:i:s') . '</td>
-                </tr>
-            </table>
-        ';
+        $pencere_bas = date('Y-m-d H:i:s', time() - ($limit_dakika * 60));
+        $stmt2 = $pdo->prepare("
+            SELECT COUNT(*) FROM mail_queue
+            WHERE created_at >= ?
+            AND status IN ('pending', 'sent', 'failed')
+        ");
+        $stmt2->execute([$pencere_bas]);
+        $son_mail_sayisi = (int)$stmt2->fetchColumn();
 
-        $konu = '[' . SITE_ADI . '] ' . $aksiyon_etiket . ' — ' . $modul_etiket;
+        if ($son_mail_sayisi >= $limit_adet) {
+            // Rate limit aşıldı — cooldown başlat
+            $cooldown_bitis = date('Y-m-d H:i:s', time() + ($cooldown_dk * 60));
+            $pdo->prepare("
+                INSERT INTO sistem_ayarlar (anahtar, deger) VALUES ('mail_cooldown_bitis', ?)
+                ON DUPLICATE KEY UPDATE deger = VALUES(deger)
+            ")->execute([$cooldown_bitis]);
 
+            // Mevcut pending mailleri paused yap
+            $pdo->exec("UPDATE mail_queue SET status = 'paused' WHERE status = 'pending'");
+
+            // Adminlere uyarı maili gönder (direkt SMTP — kritik mesaj)
+            $site_adi     = defined('SITE_ADI') ? SITE_ADI : 'Project Oil';
+            $uyari_konu   = $site_adi . ' — ⚠️ Mail Rate Limit Aşıldı';
+            $uyari_icerik = mailSablonu($uyari_konu, '
+                <p>Son <strong>' . $limit_dakika . ' dakika</strong> içinde <strong>' . $son_mail_sayisi . '</strong> mail gönderildi.</p>
+                <p>Rate limit (<strong>' . $limit_adet . ' mail / ' . $limit_dakika . ' dakika</strong>) aşıldığı için mail gönderimi <strong>' . $cooldown_dk . ' dakika</strong> süreyle duraklatıldı.</p>
+                <p>Cooldown bitiş: <strong>' . date('d.m.Y H:i:s', strtotime($cooldown_bitis)) . '</strong></p>
+                <p style="color:#666;font-size:13px;">Bu süre zarfında oluşan bildirim mailleri iptal edilecektir. Sistem loglarını kontrol etmeniz önerilir.</p>
+            ');
+            foreach ($alicilar as $alici) {
+                mailGonderSMTP($pdo, $alici['email'], $alici['ad_soyad'], $uyari_konu, $uyari_icerik);
+            }
+            return;
+        }
+
+        // ── NORMAL AKIŞ — Kuyruğa ekle ──
         foreach ($alicilar as $alici) {
-            mailGonder($pdo, $alici['email'], $alici['ad_soyad'], $konu, $icerik);
+            mailQueueEkle($pdo, $alici['email'], $alici['ad_soyad'], $konu, $icerik);
         }
 
     } catch (Exception $e) {
-        error_log('Admin bildirim hatası: ' . $e->getMessage());
+        error_log('adminBildirimGonder hatası: ' . $e->getMessage());
     }
 }
 
+// ─────────────────────────────────────────────
+// KRİTİK MAİLLER (direkt SMTP)
+// ─────────────────────────────────────────────
+
 /**
- * Mail HTML şablonu.
+ * Şifre sıfırlama maili — kuyruğa girmez, direkt gönderilir.
  */
+function sifreSifirlamaMailiGonder($pdo, array $kullanici, string $token): bool {
+    $site_adi = defined('SITE_ADI') ? SITE_ADI : 'Project Oil';
+    $link     = ROOT_URL . 'sifre_sifirlama.php?token=' . $token;
+    $icerik   = mailSablonu('🔑 Şifre Sıfırlama', '
+        <p>Merhaba <strong>' . htmlspecialchars($kullanici['ad_soyad']) . '</strong>,</p>
+        <p>' . $site_adi . ' hesabınız için şifre sıfırlama talebinde bulunuldu.</p>
+        <p style="margin:24px 0;">
+            <a href="' . $link . '" style="background:#1e4d6b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block;">
+                🔑 Şifremi Sıfırla
+            </a>
+        </p>
+        <p style="color:#666;font-size:13px;">Bu link <strong>30 dakika</strong> geçerlidir. Eğer bu talebi siz yapmadıysanız bu maili görmezden gelebilirsiniz.</p>
+        <p style="color:#666;font-size:12px;word-break:break-all;">Link çalışmıyorsa kopyalayıp tarayıcınıza yapıştırın:<br>' . $link . '</p>
+    ');
+
+    $sonuc = mailGonderSMTP($pdo, $kullanici['email'], $kullanici['ad_soyad'],
+        '🔑 Şifre Sıfırlama — ' . $site_adi, $icerik
+    );
+    return $sonuc['ok'];
+}
+
+/**
+ * Test maili — direkt SMTP.
+ */
+function testMailiGonder($pdo, string $email): array {
+    $icerik = mailSablonu('🧪 SMTP Test', '
+        <p>Bu bir test mailidir. SMTP ayarlarınız doğru çalışıyor!</p>
+        <p style="color:#666;font-size:13px;">Gönderim zamanı: ' . date('d.m.Y H:i:s') . '</p>
+    ');
+    return mailGonderSMTP($pdo, $email, 'Test',
+        '🧪 SMTP Test — ' . (defined('SITE_ADI') ? SITE_ADI : 'Project Oil'),
+        $icerik
+    );
+}
+
+// ─────────────────────────────────────────────
+// ÖZEL YARDIMCI FONKSİYONLAR
+// ─────────────────────────────────────────────
+
+function _bildirimKonuOlustur(string $aksiyon, string $modul): string {
+    $aksiyon_etiket = [
+        'ekle'     => '➕ Ekleme',
+        'sil'      => '🗑️ Silme',
+        'guncelle' => '✏️ Güncelleme',
+        'giris'    => '🔐 Giriş',
+        'cikis'    => '🚪 Çıkış',
+    ][$aksiyon] ?? $aksiyon;
+
+    $modul_etiket = [
+        'arac'        => '🚗 Araç',
+        'arac_tur'    => '🚗 Araç Türü',
+        'tesis'       => '🏭 Tesis',
+        'arac_kayit'  => '🛢️ Araç Yağ Kaydı',
+        'tesis_kayit' => '🛢️ Tesis Yağ Kaydı',
+        'urun'        => '📦 Ürün',
+        'kullanici'   => '👤 Kullanıcı',
+        'auth'        => '🔐 Oturum',
+        'sistem'      => '⚙️ Sistem',
+        'islendi'     => '✅ Depoya İşlendi',
+    ][$modul] ?? $modul;
+
+    return '[' . (defined('SITE_ADI') ? SITE_ADI : 'Project Oil') . '] ' . $aksiyon_etiket . ' — ' . $modul_etiket;
+}
+
+function _bildirimIcerikOlustur(string $aksiyon, string $modul, string $aciklama, ?array $kullanici_bilgi): string {
+    $aksiyon_etiket = [
+        'ekle'     => '➕ Ekleme',
+        'sil'      => '🗑️ Silme',
+        'guncelle' => '✏️ Güncelleme',
+        'giris'    => '🔐 Giriş',
+        'cikis'    => '🚪 Çıkış',
+    ][$aksiyon] ?? $aksiyon;
+
+    $modul_etiket = [
+        'arac'        => '🚗 Araç',
+        'arac_tur'    => '🚗 Araç Türü',
+        'tesis'       => '🏭 Tesis',
+        'arac_kayit'  => '🛢️ Araç Yağ Kaydı',
+        'tesis_kayit' => '🛢️ Tesis Yağ Kaydı',
+        'urun'        => '📦 Ürün',
+        'kullanici'   => '👤 Kullanıcı',
+        'auth'        => '🔐 Oturum',
+        'sistem'      => '⚙️ Sistem',
+        'islendi'     => '✅ Depoya İşlendi',
+    ][$modul] ?? $modul;
+
+    $yapan = $kullanici_bilgi
+        ? htmlspecialchars($kullanici_bilgi['ad_soyad'] ?? $kullanici_bilgi['adi'] ?? 'Bilinmiyor')
+        : 'Sistem';
+
+    $tablo = '
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+            <tr>
+                <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;width:140px;">İşlem</td>
+                <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . $aksiyon_etiket . '</td>
+            </tr>
+            <tr>
+                <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Modül</td>
+                <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . $modul_etiket . '</td>
+            </tr>
+            <tr>
+                <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Açıklama</td>
+                <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . htmlspecialchars($aciklama) . '</td>
+            </tr>
+            <tr>
+                <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Yapan</td>
+                <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . $yapan . '</td>
+            </tr>
+            <tr>
+                <td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:700;">Tarih</td>
+                <td style="padding:8px 12px;border:1px solid #e2e8f0;">' . date('d.m.Y H:i:s') . '</td>
+            </tr>
+        </table>
+    ';
+
+    return mailSablonu(_bildirimKonuOlustur($aksiyon, $modul), $tablo);
+}
+
+// ─────────────────────────────────────────────
+// MAIL HTML ŞABLONU
+// ─────────────────────────────────────────────
+
 function mailSablonu(string $baslik, string $icerik): string {
+    $site_adi = defined('SITE_ADI') ? SITE_ADI : 'Project Oil';
     return '<!DOCTYPE html>
 <html lang="tr">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -211,24 +373,21 @@ function mailSablonu(string $baslik, string $icerik): string {
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 16px;">
     <tr><td align="center">
         <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
-            <!-- Header -->
             <tr>
                 <td style="background:linear-gradient(135deg,#1e4d6b,#2980b9);border-radius:12px 12px 0 0;padding:24px 32px;text-align:center;">
                     <div style="font-size:28px;margin-bottom:8px;">🔩</div>
-                    <div style="color:#fff;font-size:18px;font-weight:700;">' . SITE_ADI . '</div>
+                    <div style="color:#fff;font-size:18px;font-weight:700;">' . $site_adi . '</div>
                 </td>
             </tr>
-            <!-- Body -->
             <tr>
                 <td style="background:#fff;padding:32px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
                     <h2 style="margin:0 0 20px;color:#1e293b;font-size:18px;">' . htmlspecialchars($baslik) . '</h2>
                     ' . $icerik . '
                 </td>
             </tr>
-            <!-- Footer -->
             <tr>
                 <td style="background:#f8fafc;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:16px 32px;text-align:center;">
-                    <p style="margin:0;color:#94a3b8;font-size:12px;">' . SITE_ADI . ' &copy; ' . date('Y') . ' — Bu mail otomatik olarak gönderilmiştir.</p>
+                    <p style="margin:0;color:#94a3b8;font-size:12px;">' . $site_adi . ' &copy; ' . date('Y') . ' — Bu mail otomatik olarak gönderilmiştir.</p>
                 </td>
             </tr>
         </table>
