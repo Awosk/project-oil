@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS `mail_queue` (
   `to_name` varchar(100) NOT NULL DEFAULT '',
   `subject` varchar(255) NOT NULL,
   `body` longtext NOT NULL,
-  `status` enum('pending','sent','failed','paused','cancelled') NOT NULL DEFAULT 'pending',
+  `status` enum('pending','sent','failed','paused','processing','force','cancelled') NOT NULL DEFAULT 'pending',
   `attempt_count` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `sent_at` datetime DEFAULT NULL,

@@ -24,9 +24,6 @@ require_once __DIR__ . '/phpmailer/Exception.php';
 // YARDIMCI FONKSİYONLAR
 // ─────────────────────────────────────────────
 
-/**
- * Sistem ayarlarından SMTP konfigürasyonunu çeker.
- */
 function smtpAyarlariGetir($pdo): array {
     try {
         $rows = $pdo->query("SELECT anahtar, deger FROM sistem_ayarlar WHERE anahtar LIKE 'smtp_%'")->fetchAll();
@@ -40,9 +37,6 @@ function smtpAyarlariGetir($pdo): array {
     }
 }
 
-/**
- * Belirli bir ayar anahtarının değerini döner.
- */
 function sistemAyarGetir($pdo, string $anahtar, string $varsayilan = ''): string {
     try {
         $stmt = $pdo->prepare("SELECT deger FROM sistem_ayarlar WHERE anahtar = ?");
@@ -54,16 +48,10 @@ function sistemAyarGetir($pdo, string $anahtar, string $varsayilan = ''): string
     }
 }
 
-/**
- * SMTP aktif mi?
- */
 function smtpAktifMi($pdo): bool {
     return sistemAyarGetir($pdo, 'smtp_aktif') === '1';
 }
 
-/**
- * Cooldown aktif mi?
- */
 function cooldownAktifMi($pdo): bool {
     $bitis = sistemAyarGetir($pdo, 'mail_cooldown_bitis');
     if (!$bitis) return false;
@@ -75,14 +63,17 @@ function cooldownAktifMi($pdo): bool {
 // ─────────────────────────────────────────────
 
 /**
- * Maili kuyruğa ekler. Direkt göndermez.
- * Cooldown aktifse 'paused' olarak ekler.
+ * Maili kuyruğa ekler.
+ * @param string $status 'pending' veya 'force' olabilir.
  */
-function mailQueueEkle($pdo, string $to_email, string $to_name, string $subject, string $body): bool {
+function mailQueueEkle($pdo, string $to_email, string $to_name, string $subject, string $body, string $status = 'pending'): bool {
     if (!smtpAktifMi($pdo)) return false;
     if (!filter_var($to_email, FILTER_VALIDATE_EMAIL)) return false;
 
-    $status = cooldownAktifMi($pdo) ? 'paused' : 'pending';
+    // Eğer force değilse ve cooldown aktifse 'paused' yap
+    if ($status !== 'force' && cooldownAktifMi($pdo)) {
+        $status = 'paused';
+    }
 
     try {
         $pdo->prepare("
@@ -96,10 +87,6 @@ function mailQueueEkle($pdo, string $to_email, string $to_name, string $subject,
     }
 }
 
-/**
- * Tek bir maili SMTP ile gönderir. Sadece worker ve kritik mailler kullanır.
- * @return array ['ok' => bool, 'hata' => string]
- */
 function mailGonderSMTP($pdo, string $to_email, string $to_name, string $subject, string $body): array {
     $ayarlar = smtpAyarlariGetir($pdo);
 
@@ -119,9 +106,9 @@ function mailGonderSMTP($pdo, string $to_email, string $to_name, string $subject
             : PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = (int)($ayarlar['smtp_port'] ?? 587);
         $mail->CharSet    = 'UTF-8';
-        $mail->Timeout    = 5; // max 5 saniye
+        $mail->Timeout    = 5;
 
-        $gonderen_ad    = $ayarlar['smtp_ad']       ?: (defined('SITE_ADI') ? SITE_ADI : 'Project Oil');
+        $gonderen_ad    = $ayarlar['smtp_ad']   ?: (defined('SITE_ADI') ? SITE_ADI : 'Project Oil');
         $gonderen_email = $ayarlar['smtp_gonderen'] ?: $ayarlar['smtp_kullanici'];
 
         $mail->setFrom($gonderen_email, $gonderen_ad);
@@ -146,15 +133,10 @@ function mailGonderSMTP($pdo, string $to_email, string $to_name, string $subject
 // BİLDİRİM SİSTEMİ
 // ─────────────────────────────────────────────
 
-/**
- * Admin bildirim maili kuyruğa ekler.
- * Rate limit ve cooldown kontrolü yapar.
- */
 function adminBildirimGonder($pdo, string $aksiyon, string $modul, string $aciklama, ?array $kullanici_bilgi = null): void {
     if (!smtpAktifMi($pdo)) return;
 
     try {
-        // Bu modül+aksiyon için bildirim açık olan adminleri bul
         $stmt = $pdo->prepare("
             SELECT k.email, k.ad_soyad
             FROM admin_bildirim_filtreler f
@@ -174,18 +156,13 @@ function adminBildirimGonder($pdo, string $aksiyon, string $modul, string $acikl
         $konu   = _bildirimKonuOlustur($aksiyon, $modul);
         $icerik = _bildirimIcerikOlustur($aksiyon, $modul, $aciklama, $kullanici_bilgi);
 
-        // ── COOLDOWN KONTROLÜ ──
         if (cooldownAktifMi($pdo)) {
             foreach ($alicilar as $alici) {
-                $pdo->prepare("
-                    INSERT INTO mail_queue (to_email, to_name, subject, body, status)
-                    VALUES (?, ?, ?, ?, 'paused')
-                ")->execute([$alici['email'], $alici['ad_soyad'], $konu, $icerik]);
+                mailQueueEkle($pdo, $alici['email'], $alici['ad_soyad'], $konu, $icerik, 'paused');
             }
             return;
         }
 
-        // ── RATE LIMIT KONTROLÜ ──
         $limit_adet   = (int)sistemAyarGetir($pdo, 'mail_rate_limit_adet', '10');
         $limit_dakika = (int)sistemAyarGetir($pdo, 'mail_rate_limit_dakika', '5');
         $cooldown_dk  = (int)sistemAyarGetir($pdo, 'mail_cooldown_dakika', '15');
@@ -194,38 +171,35 @@ function adminBildirimGonder($pdo, string $aksiyon, string $modul, string $acikl
         $stmt2 = $pdo->prepare("
             SELECT COUNT(*) FROM mail_queue
             WHERE created_at >= ?
-            AND status IN ('pending', 'sent', 'failed')
+            AND status IN ('pending', 'sent', 'failed', 'force')
         ");
         $stmt2->execute([$pencere_bas]);
         $son_mail_sayisi = (int)$stmt2->fetchColumn();
 
         if ($son_mail_sayisi >= $limit_adet) {
-            // Rate limit aşıldı — cooldown başlat
             $cooldown_bitis = date('Y-m-d H:i:s', time() + ($cooldown_dk * 60));
             $pdo->prepare("
                 INSERT INTO sistem_ayarlar (anahtar, deger) VALUES ('mail_cooldown_bitis', ?)
                 ON DUPLICATE KEY UPDATE deger = VALUES(deger)
             ")->execute([$cooldown_bitis]);
 
-            // Mevcut pending mailleri paused yap
             $pdo->exec("UPDATE mail_queue SET status = 'paused' WHERE status = 'pending'");
 
-            // Adminlere uyarı maili gönder (direkt SMTP — kritik mesaj)
+            // UYARI MAİLİNİ 'force' OLARAK QUEUE'YE EKLİYORUZ
             $site_adi     = defined('SITE_ADI') ? SITE_ADI : 'Project Oil';
             $uyari_konu   = $site_adi . ' — ⚠️ Mail Rate Limit Aşıldı';
             $uyari_icerik = mailSablonu($uyari_konu, '
                 <p>Son <strong>' . $limit_dakika . ' dakika</strong> içinde <strong>' . $son_mail_sayisi . '</strong> mail gönderildi.</p>
-                <p>Rate limit (<strong>' . $limit_adet . ' mail / ' . $limit_dakika . ' dakika</strong>) aşıldığı için mail gönderimi <strong>' . $cooldown_dk . ' dakika</strong> süreyle duraklatıldı.</p>
+                <p>Rate limit aşıldığı için mail gönderimi duraklatıldı.</p>
                 <p>Cooldown bitiş: <strong>' . date('d.m.Y H:i:s', strtotime($cooldown_bitis)) . '</strong></p>
-                <p style="color:#666;font-size:13px;">Bu süre zarfında oluşan bildirim mailleri iptal edilecektir. Sistem loglarını kontrol etmeniz önerilir.</p>
             ');
+
             foreach ($alicilar as $alici) {
-                mailGonderSMTP($pdo, $alici['email'], $alici['ad_soyad'], $uyari_konu, $uyari_icerik);
+                mailQueueEkle($pdo, $alici['email'], $alici['ad_soyad'], $uyari_konu, $uyari_icerik, 'force');
             }
             return;
         }
 
-        // ── NORMAL AKIŞ — Kuyruğa ekle ──
         foreach ($alicilar as $alici) {
             mailQueueEkle($pdo, $alici['email'], $alici['ad_soyad'], $konu, $icerik);
         }
