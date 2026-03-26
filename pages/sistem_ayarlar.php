@@ -98,28 +98,46 @@ foreach ($filtre_rows as $row) {
 
 // Tanımlı modül/aksiyon çiftleri
 $bildirim_secenekleri = [
-    'Araç & Tesis İşlemleri' => [
+    'Araç Yağ Kayıtları' => [
         ['arac_kayit', 'ekle',     '🛢️ Araç yağ kaydı eklendi'],
         ['arac_kayit', 'sil',      '🗑️ Araç yağ kaydı silindi'],
-        ['tesis_kayit','ekle',     '🛢️ Tesis yağ kaydı eklendi'],
-        ['tesis_kayit','sil',      '🗑️ Tesis yağ kaydı silindi'],
+        ['arac_kayit', 'guncelle', '✏️ Araç yağ kaydı güncellendi'],
         ['islendi',    'guncelle', '✅ Kayıt depoya işlendi'],
     ],
-    'Araç & Tesis Yönetimi' => [
-        ['arac',  'ekle',     '🚗 Araç eklendi'],
-        ['arac',  'sil',      '🗑️ Araç silindi'],
+    'Tesis Yağ Kayıtları' => [
+        ['tesis_kayit', 'ekle',     '🛢️ Tesis yağ kaydı eklendi'],
+        ['tesis_kayit', 'sil',      '🗑️ Tesis yağ kaydı silindi'],
+        ['tesis_kayit', 'guncelle', '✏️ Tesis yağ kaydı güncellendi'],
+    ],
+    'Araç Yönetimi' => [
+        ['arac',      'ekle',     '🚗 Araç eklendi'],
+        ['arac',      'sil',      '🗑️ Araç silindi'],
+        ['arac',      'guncelle', '✏️ Araç güncellendi'],
+        ['arac_tur',  'ekle',     '🚗 Araç türü eklendi'],
+        ['arac_tur',  'sil',      '🗑️ Araç türü silindi'],
+        ['arac_tur',  'guncelle', '✏️ Araç türü güncellendi'],
+    ],
+    'Tesis Yönetimi' => [
         ['tesis', 'ekle',     '🏭 Tesis eklendi'],
         ['tesis', 'sil',      '🗑️ Tesis silindi'],
+        ['tesis', 'guncelle', '✏️ Tesis güncellendi'],
+    ],
+    'Ürün Yönetimi' => [
+        ['urun', 'ekle',     '📦 Ürün eklendi'],
+        ['urun', 'sil',      '🗑️ Ürün silindi'],
+        ['urun', 'guncelle', '✏️ Ürün güncellendi'],
     ],
     'Kullanıcı İşlemleri' => [
         ['kullanici', 'ekle',     '👤 Kullanıcı eklendi'],
         ['kullanici', 'sil',      '🗑️ Kullanıcı silindi'],
         ['kullanici', 'guncelle', '✏️ Kullanıcı güncellendi'],
-        ['auth',      'giris',    '🔐 Sisteme giriş'],
+        ['auth',      'giris',    '🔐 Sisteme giriş yapıldı'],
+        ['auth',      'cikis',    '🚪 Sistemden çıkış yapıldı'],
     ],
     'Sistem' => [
         ['sistem', 'guncelle', '🔄 Sistem güncellendi'],
         ['sistem', 'ekle',     '💾 Veritabanı yedeği alındı'],
+        ['sistem', 'sil',      '🗑️ Veritabanı yedeği silindi'],
     ],
 ];
 

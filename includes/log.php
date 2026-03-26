@@ -12,7 +12,11 @@
 // =====================================================
 // LOG SİSTEMİ — Ana ve Lite için ortak
 // =====================================================
-
+// mail.php henüz yüklü değilse yükle
+if (function_exists('adminBildirimGonder') === false && isset($GLOBALS['pdo'])) {
+    $mail_path = __DIR__ . '/mail.php';
+    if (file_exists($mail_path)) require_once $mail_path;
+}
 function logYaz($pdo, $aksiyon, $modul, $aciklama, $kayit_id = null, $eski = null, $yeni = null, $sistem = 'ana') {
     $ku = mevcutKullanici();
     $ip = $_SERVER['HTTP_X_FORWARDED_FOR']
@@ -42,11 +46,18 @@ function logYaz($pdo, $aksiyon, $modul, $aciklama, $kayit_id = null, $eski = nul
             $ip,
         ]);
     } catch (Exception $e) {
-        // Log yazılamaması ana işlemi durdurmasın
         error_log('Log yazma hatası: ' . $e->getMessage());
     }
 
-    // Admin bildirimlerini tetikle (mail.php yüklüyse)
+    // Admin bildirimlerini tetikle
+    static $mail_yuklendi = false;
+    if (!$mail_yuklendi) {
+        $mail_path = __DIR__ . '/mail.php';
+        if (file_exists($mail_path)) {
+            require_once $mail_path;
+            $mail_yuklendi = true;
+        }
+    }
     if (function_exists('adminBildirimGonder')) {
         adminBildirimGonder($pdo, $aksiyon, $modul, $aciklama, $ku);
     }
