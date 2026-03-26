@@ -293,3 +293,48 @@ textarea { resize:vertical; min-height:80px; font-size:15px; }
 .badge-arac  { background:var(--primary-bg-l); color:var(--primary-text); }
 .badge-tesis { background:var(--success-l); color:var(--success-text); }
 .text-warning-sm { font-size:10px; font-weight:700; color:var(--warning-dark); }
+
+/* Admin Başlık Tasarımı */
+.admin-accordion-header {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    transition: background 0.2s;
+}
+
+.admin-accordion-header:hover {
+    background: var(--border);
+}
+
+/* Ok İkonu Animasyonu */
+.admin-toggle-icon {
+    transition: transform 0.3s ease;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.admin-accordion-header.active .admin-toggle-icon {
+    transform: rotate(180deg); /* Açılınca ok yukarı döner */
+}
+
+/* İçerik Panelini Gizleme/Gösterme */
+.admin-accordion-content {
+    display: none; /* Varsayılan olarak kapalı */
+    padding: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--r-sm) var(--r-sm);
+}
+
+/* Aktif olan başlığın alt köşelerini düzleştir */
+.admin-accordion-header.active {
+    border-radius: var(--r-sm) var(--r-sm) 0 0;
+    background: var(--card);
+}
