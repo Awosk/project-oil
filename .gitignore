@@ -1,3 +1,4 @@
 .env
 pages/db_backups
 pages/db_backups/*
+cron/mail_worker.log
