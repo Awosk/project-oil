@@ -1,5 +1,5 @@
 .env
-pages/db_backups
-pages/db_backups/*
+pages/management/db_backups
+pages/management/db_backups/*
 cron/mail_worker.log
 dev_updater.php
