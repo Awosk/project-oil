@@ -12,14 +12,12 @@
 /**
  * Project Oil — Kurulum Sihirbazı
  * install/index.php
- *
- * Güvenlik: .env zaten mevcutsa kurulum engellenir.
  */
 
 define('INSTALL_DIR', __DIR__);
 define('ROOT_DIR',    dirname(__DIR__));
 
-// ── Zaten kuruluysa engelle ──
+// ── Zaten kuruluysa engelle ve yönlendir ──
 if (file_exists(ROOT_DIR . '/.env')) {
     die(renderEngel());
 }
@@ -35,7 +33,6 @@ $basarili = false;
 // ════════════════════════════════════════════════
 
 // Adım 2 → Veritabanı bağlantı testi (AJAX)
-// dbname olmadan bağlanır — veritabanı henüz mevcut olmayabilir
 if (isset($_GET['db_test'])) {
     header('Content-Type: application/json');
     $host = trim($_POST['db_host'] ?? '');
@@ -83,19 +80,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adim2'])) {
 
 // Adım 3 → Admin kullanıcı oluştur + kurulumu tamamla
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adim3'])) {
-    $ad_soyad = trim($_POST['ad_soyad']);
-    $k_adi    = trim($_POST['kullanici_adi']);
-    $sifre    = $_POST['sifre'];
-    $sifre2   = $_POST['sifre2'];
+    
+    $skip_admin = isset($_POST['skip_admin']); // Atla butonuna basıldı mı?
+    
+    $ad_soyad = trim($_POST['ad_soyad'] ?? '');
+    $k_adi    = trim($_POST['kullanici_adi'] ?? '');
+    $sifre    = $_POST['sifre'] ?? '';
+    $sifre2   = $_POST['sifre2'] ?? '';
 
-    if (!$ad_soyad)              $hatalar[] = 'Ad Soyad zorunludur.';
-    if (!$k_adi)                 $hatalar[] = 'Kullanıcı adı zorunludur.';
-    if (strlen($sifre) < 6)     $hatalar[] = 'Şifre en az 6 karakter olmalıdır.';
-    if ($sifre !== $sifre2)     $hatalar[] = 'Şifreler eşleşmiyor.';
+    // Eğer "Atla" seçilmediyse form doğrulaması yap
+    if (!$skip_admin) {
+        if (!$ad_soyad)              $hatalar[] = 'Ad Soyad zorunludur.';
+        if (!$k_adi)                 $hatalar[] = 'Kullanıcı adı zorunludur.';
+        if (strlen($sifre) < 6)      $hatalar[] = 'Şifre en az 6 karakter olmalıdır.';
+        if ($sifre !== $sifre2)      $hatalar[] = 'Şifreler eşleşmiyor.';
+    }
 
     if (empty($hatalar)) {
         try {
-            // Önce dbname olmadan bağlan, veritabanını oluştur, sonra seç
             $pdo = new PDO(
                 "mysql:host={$_SESSION['db_host']};charset=utf8mb4",
                 $_SESSION['db_user'], $_SESSION['db_pass'],
@@ -105,14 +107,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adim3'])) {
             $pdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_turkish_ci");
             $pdo->exec("USE `$dbName`");
 
-            // SQL dosyasını çalıştır
+            // SQL dosyasını çalıştır (eski tablolar varsa database.sql'deki yapıya göre korunur)
             $sql_dosya = INSTALL_DIR . '/database.sql';
             if (!file_exists($sql_dosya)) {
                 $hatalar[] = 'database.sql dosyası bulunamadı: ' . $sql_dosya;
             } else {
                 $sql = file_get_contents($sql_dosya);
 
-                // Yorum satırlarini (-- ...) ve bos satirlari temizle, sonra ; ile bol
                 $satirlar = explode("\n", str_replace("\r\n", "\n", $sql));
                 $temiz = [];
                 foreach ($satirlar as $satir) {
@@ -132,10 +133,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adim3'])) {
                 }
                 $pdo->exec("SET foreign_key_checks = 1");
 
-                // Admin kullanıcısını ekle
-                $pdo->prepare(
-                    "INSERT INTO kullanicilar (ad_soyad, kullanici_adi, sifre, rol) VALUES (?, ?, ?, 'admin')"
-                )->execute([$ad_soyad, $k_adi, password_hash($sifre, PASSWORD_DEFAULT)]);
+                // Sadece yeni kullanıcı istenmişse admin ekle
+                if (!$skip_admin) {
+                    $pdo->prepare(
+                        "INSERT INTO kullanicilar (ad_soyad, kullanici_adi, sifre, rol) VALUES (?, ?, ?, 'admin')"
+                    )->execute([$ad_soyad, $k_adi, password_hash($sifre, PASSWORD_DEFAULT)]);
+                }
 
                 // İlk kurulum versiyonunu migration tablosuna kaydet
                 $ver_dosya = ROOT_DIR . '/version.php';
@@ -177,11 +180,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['adim3'])) {
 function gereksinimler(): array {
     return [
         ['PHP ≥ 8.0',        PHP_VERSION_ID >= 80000,         PHP_VERSION],
-        ['PDO',              extension_loaded('pdo'),          extension_loaded('pdo') ? 'Yüklü' : 'Eksik'],
-        ['PDO MySQL',        extension_loaded('pdo_mysql'),    extension_loaded('pdo_mysql') ? 'Yüklü' : 'Eksik'],
-        ['ZipArchive',       class_exists('ZipArchive'),       class_exists('ZipArchive') ? 'Yüklü' : 'Eksik'],
-        ['allow_url_fopen',  ini_get('allow_url_fopen'),       ini_get('allow_url_fopen') ? 'Açık' : 'Kapalı'],
-        ['.env yazılabilir', is_writable(ROOT_DIR),            is_writable(ROOT_DIR) ? 'Yazılabilir' : 'İzin Yok'],
+        ['PDO',              extension_loaded('pdo'),         extension_loaded('pdo') ? 'Yüklü' : 'Eksik'],
+        ['PDO MySQL',        extension_loaded('pdo_mysql'),   extension_loaded('pdo_mysql') ? 'Yüklü' : 'Eksik'],
+        ['ZipArchive',       class_exists('ZipArchive'),      class_exists('ZipArchive') ? 'Yüklü' : 'Eksik'],
+        ['allow_url_fopen',  ini_get('allow_url_fopen'),      ini_get('allow_url_fopen') ? 'Açık' : 'Kapalı'],
+        ['.env yazılabilir', is_writable(ROOT_DIR),           is_writable(ROOT_DIR) ? 'Yazılabilir' : 'İzin Yok'],
     ];
 }
 
@@ -193,22 +196,24 @@ function tumGereksinimleriKarsiladi(): bool {
 }
 
 // ════════════════════════════════════════════════
-// ENGEL EKRANI
+// ENGEL VE YÖNLENDİRME EKRANI (.env varsa)
 // ════════════════════════════════════════════════
 function renderEngel(): string {
     return '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8">
-    <title>Kurulum Engellendi</title>
+    <title>Kurulum Tamamlandı</title>
     <style>
         body{font-family:sans-serif;background:#0f172a;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}
         .box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:40px;text-align:center;max-width:440px;}
-        h2{color:#f87171;margin:0 0 12px;}p{color:#94a3b8;margin:0;}
-        a{color:#60a5fa;text-decoration:none;}a:hover{text-decoration:underline;}
+        h2{color:#3fb950;margin:0 0 12px;}p{color:#94a3b8;margin:0;}
+        .loader{border:4px solid #334155;border-top:4px solid #3fb950;border-radius:50%;width:30px;height:30px;animation:spin 1s linear infinite;margin:20px auto;}
+        @keyframes spin {0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
     </style></head><body>
     <div class="box">
-        <div style="font-size:48px;margin-bottom:16px;">🔒</div>
-        <h2>Kurulum Zaten Tamamlandı</h2>
-        <p>Sistem kurulu. Kurulumu yeniden çalıştırmak için <code>.env</code> dosyasını silin.</p>
-        <p style="margin-top:16px;"><a href="../pages/auth/login.php">→ Giriş sayfasına git</a></p>
+        <div style="font-size:48px;margin-bottom:16px;">✅</div>
+        <h2>Kurulum Tamamlandı</h2>
+        <p>Sistem halihazırda kurulu. Giriş sayfasına yönlendiriliyorsunuz...</p>
+        <div class="loader"></div>
+        <script>setTimeout(function(){ window.location.href="../pages/auth/login.php"; }, 2000);</script>
     </div></body></html>';
 }
 
@@ -259,309 +264,85 @@ function renderEngel(): string {
         }
 
         /* ── HEADER ── */
-        .install-header {
-            text-align: center;
-            margin-bottom: 36px;
-        }
-        .install-logo {
-            width: 56px; height: 56px;
-            background: linear-gradient(135deg, #1f6feb, #388bfd);
-            border-radius: 14px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 28px;
-            margin-bottom: 14px;
-            box-shadow: 0 0 0 1px rgba(56,139,253,.3), 0 8px 24px rgba(31,111,235,.25);
-        }
-        .install-header h1 {
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--text);
-            letter-spacing: -.3px;
-        }
-        .install-header p {
-            font-size: 13px;
-            color: var(--muted);
-            margin-top: 4px;
-        }
+        .install-header { text-align: center; margin-bottom: 36px; }
+        .install-logo { width: 56px; height: 56px; background: linear-gradient(135deg, #1f6feb, #388bfd); border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 14px; box-shadow: 0 0 0 1px rgba(56,139,253,.3), 0 8px 24px rgba(31,111,235,.25); }
+        .install-header h1 { font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -.3px; }
+        .install-header p { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
         /* ── ADIM ÇİZGİSİ ── */
-        .stepper {
-            display: flex;
-            align-items: center;
-            gap: 0;
-            margin-bottom: 28px;
-            width: 100%;
-            max-width: 560px;
-        }
-        .step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 6px;
-            flex: 1;
-            position: relative;
-        }
-        .step::after {
-            content: '';
-            position: absolute;
-            top: 15px;
-            left: 50%;
-            width: 100%;
-            height: 2px;
-            background: var(--border);
-            z-index: 0;
-        }
+        .stepper { display: flex; align-items: center; gap: 0; margin-bottom: 28px; width: 100%; max-width: 560px; }
+        .step { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; position: relative; }
+        .step::after { content: ''; position: absolute; top: 15px; left: 50%; width: 100%; height: 2px; background: var(--border); z-index: 0; }
         .step:last-child::after { display: none; }
-        .step-dot {
-            width: 30px; height: 30px;
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: 700;
-            border: 2px solid var(--border);
-            background: var(--surface);
-            color: var(--muted);
-            z-index: 1;
-            position: relative;
-            transition: all .3s;
-        }
-        .step.aktif .step-dot {
-            border-color: var(--primary-l);
-            background: var(--primary);
-            color: #fff;
-            box-shadow: 0 0 0 4px rgba(56,139,253,.2);
-        }
-        .step.tamam .step-dot {
-            border-color: var(--success-t);
-            background: var(--success);
-            color: #fff;
-        }
+        .step-dot { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; border: 2px solid var(--border); background: var(--surface); color: var(--muted); z-index: 1; position: relative; transition: all .3s; }
+        .step.aktif .step-dot { border-color: var(--primary-l); background: var(--primary); color: #fff; box-shadow: 0 0 0 4px rgba(56,139,253,.2); }
+        .step.tamam .step-dot { border-color: var(--success-t); background: var(--success); color: #fff; }
         .step.tamam::after { background: var(--success); }
-        .step-label {
-            font-size: 10px;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: .5px;
-            font-weight: 600;
-            white-space: nowrap;
-        }
+        .step-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; white-space: nowrap; }
         .step.aktif .step-label { color: var(--primary-l); }
         .step.tamam .step-label { color: var(--success-t); }
 
         /* ── KART ── */
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 28px 28px;
-            width: 100%;
-            max-width: 560px;
-        }
-        .card-title {
-            font-size: 16px;
-            font-weight: 700;
-            color: var(--text);
-            margin-bottom: 6px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .card-desc {
-            font-size: 13px;
-            color: var(--muted);
-            margin-bottom: 24px;
-            line-height: 1.6;
-        }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 28px 28px; width: 100%; max-width: 560px; }
+        .card-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+        .card-desc { font-size: 13px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
 
         /* ── FORM ── */
-        .form-group {
-            margin-bottom: 16px;
-        }
-        label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: .5px;
-            margin-bottom: 7px;
-        }
-        input[type=text],
-        input[type=password] {
-            width: 100%;
-            padding: 10px 13px;
-            background: var(--surface2);
-            border: 1px solid var(--border2);
-            border-radius: 7px;
-            color: var(--text);
-            font-size: 14px;
-            font-family: var(--sans);
-            transition: border-color .2s, box-shadow .2s;
-            outline: none;
-        }
-        input:focus {
-            border-color: var(--primary-l);
-            box-shadow: 0 0 0 3px rgba(56,139,253,.15);
-        }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 7px; }
+        input[type=text], input[type=password] { width: 100%; padding: 10px 13px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 7px; color: var(--text); font-size: 14px; font-family: var(--sans); transition: border-color .2s, box-shadow .2s; outline: none; }
+        input:focus { border-color: var(--primary-l); box-shadow: 0 0 0 3px rgba(56,139,253,.15); }
         input::placeholder { color: var(--muted); }
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
         /* ── BUTONLAR ── */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 10px 20px;
-            border-radius: 7px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            border: none;
-            text-decoration: none;
-            transition: all .2s;
-            font-family: var(--sans);
-        }
-        .btn-primary {
-            background: var(--primary);
-            color: #fff;
-        }
+        .btn { display: inline-flex; align-items: center; gap: 7px; padding: 10px 20px; border-radius: 7px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; text-decoration: none; transition: all .2s; font-family: var(--sans); }
+        .btn-primary { background: var(--primary); color: #fff; }
         .btn-primary:hover { background: var(--primary-l); }
-        .btn-secondary {
-            background: var(--surface2);
-            color: var(--text);
-            border: 1px solid var(--border2);
-        }
+        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border2); }
         .btn-secondary:hover { border-color: var(--primary-l); color: var(--primary-l); }
-        .btn-success {
-            background: var(--success);
-            color: #fff;
-        }
+        .btn-success { background: var(--success); color: #fff; }
         .btn-success:hover { background: var(--success-l); }
+        .btn-warning { background: var(--warning); color: #fff; }
+        .btn-warning:hover { background: var(--warning-t); }
         .btn:disabled { opacity: .5; cursor: not-allowed; }
 
-        /* ── UYARILAR ── */
-        .alert {
-            padding: 12px 14px;
-            border-radius: 7px;
-            font-size: 13px;
-            margin-bottom: 16px;
-            display: flex;
-            gap: 8px;
-            align-items: flex-start;
-        }
+        /* ── UYARILAR & LOADER ── */
+        .alert { padding: 12px 14px; border-radius: 7px; font-size: 13px; margin-bottom: 16px; display: flex; gap: 8px; align-items: flex-start; line-height:1.5; }
         .alert-danger  { background: rgba(218,54,51,.12); border: 1px solid rgba(248,81,73,.3); color: var(--danger-l); }
         .alert-success { background: rgba(35,134,54,.12); border: 1px solid rgba(63,185,80,.3); color: var(--success-t); }
         .alert-warning { background: rgba(158,106,3,.15); border: 1px solid rgba(210,153,34,.3); color: var(--warning-t); }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loader-sm { border: 3px solid var(--border2); border-top: 3px solid var(--success-t); border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 10px auto; }
 
         /* ── GEREKSİNİM TABLOSU ── */
         .req-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-        .req-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 14px;
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            border-radius: 7px;
-            font-size: 13px;
-        }
+        .req-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; font-size: 13px; }
         .req-name { color: var(--text); font-weight: 500; }
         .req-val  { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 0 12px; }
         .req-ok   { color: var(--success-t); font-size: 16px; }
         .req-fail { color: var(--danger-l);  font-size: 16px; }
 
         /* ── DB TEST BUTONU ── */
-        .db-test-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        #db_test_sonuc {
-            font-size: 12px;
-            font-weight: 600;
-        }
+        .db-test-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+        #db_test_sonuc { font-size: 12px; font-weight: 600; }
 
         /* ── TAMAMLANDI ── */
-        .success-box {
-            text-align: center;
-            padding: 16px 0;
-        }
-        .success-icon {
-            width: 72px; height: 72px;
-            background: linear-gradient(135deg, var(--success), var(--success-l));
-            border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 36px;
-            margin-bottom: 20px;
-            box-shadow: 0 0 0 8px rgba(35,134,54,.15);
-        }
-        .success-box h2 {
-            font-size: 22px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-        .success-box p {
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.7;
-            margin-bottom: 6px;
-        }
+        .success-box { text-align: center; padding: 16px 0; }
+        .success-icon { width: 72px; height: 72px; background: linear-gradient(135deg, var(--success), var(--success-l)); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 20px; box-shadow: 0 0 0 8px rgba(35,134,54,.15); }
+        .success-box h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+        .success-box p { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 6px; }
 
-        /* ── ŞİFRE GÖSTERİCİ ── */
-        .pass-wrap {
-            position: relative;
-        }
-        .pass-toggle {
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: var(--muted);
-            cursor: pointer;
-            font-size: 14px;
-            padding: 2px 4px;
-        }
+        /* ── ŞİFRE GÖSTERİCİ & GÜÇ ── */
+        .pass-wrap { position: relative; }
+        .pass-toggle { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 4px; }
         .pass-toggle:hover { color: var(--text); }
+        .strength-bar { height: 3px; border-radius: 2px; background: var(--border); margin-top: 6px; overflow: hidden; }
+        .strength-fill { height: 100%; border-radius: 2px; transition: width .3s, background .3s; width: 0; }
 
-        /* ── ŞİFRE GÜÇ ── */
-        .strength-bar {
-            height: 3px;
-            border-radius: 2px;
-            background: var(--border);
-            margin-top: 6px;
-            overflow: hidden;
-        }
-        .strength-fill {
-            height: 100%;
-            border-radius: 2px;
-            transition: width .3s, background .3s;
-            width: 0;
-        }
-
-        /* ── DIVIDER ── */
-        .divider {
-            border: none;
-            border-top: 1px solid var(--border);
-            margin: 24px 0;
-        }
-
-        /* ── FOOTER ── */
-        .install-footer {
-            margin-top: 24px;
-            font-size: 11px;
-            color: var(--muted);
-            text-align: center;
-        }
+        /* ── BÖLÜCÜ & FOOTER ── */
+        .divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+        .install-footer { margin-top: 24px; font-size: 11px; color: var(--muted); text-align: center; }
     </style>
 </head>
 <body>
@@ -572,7 +353,6 @@ function renderEngel(): string {
     <p>Kurulum Sihirbazı</p>
 </div>
 
-<!-- ADIM GÖSTERGESİ -->
 <div class="stepper">
     <?php
     $adimlar = ['Gereksinimler', 'Veritabanı', 'Admin', 'Tamamlandı'];
@@ -587,26 +367,62 @@ function renderEngel(): string {
     <?php endforeach; ?>
 </div>
 
-<!-- ════ ADIM 4: TAMAMLANDI ════ -->
 <?php if ($adim === 4): ?>
 <div class="card">
     <div class="success-box">
         <div class="success-icon">✓</div>
         <h2>Kurulum Tamamlandı!</h2>
-        <p>Veritabanı oluşturuldu, admin hesabı kaydedildi<br>ve <code>.env</code> dosyası başarıyla yazıldı.</p>
-        <p style="margin-top:8px;">Güvenlik için <strong>install/</strong> klasörünü<br>sunucudan silebilirsiniz.</p>
-        <hr class="divider">
-        <a href="../pages/auth/login.php" class="btn btn-success" style="margin: 0 auto;">
-            🔐 Giriş Sayfasına Git →
-        </a>
+        <p>Sistem başarıyla kuruldu ve ayarlandı.<br>Giriş sayfasına yönlendiriliyorsunuz...</p>
+        <div class="loader-sm"></div>
+        <script>setTimeout(function(){ window.location.href="../pages/auth/login.php"; }, 3000);</script>
     </div>
 </div>
 
-<!-- ════ ADIM 3: ADMİN KULLANICI ════ -->
 <?php elseif ($adim === 3): ?>
+<?php
+// Adım 3'e gelirken mevcut bir admin olup olmadığını kontrol et
+$admin_var_mi = false;
+try {
+    $pdo_test = new PDO(
+        "mysql:host={$_SESSION['db_host']};dbname={$_SESSION['db_name']};charset=utf8mb4",
+        $_SESSION['db_user'], $_SESSION['db_pass'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+    // kullanicilar tablosu var mı?
+    $tbl = $pdo_test->query("SHOW TABLES LIKE 'kullanicilar'")->fetch();
+    if ($tbl) {
+        $say = $pdo_test->query("SELECT COUNT(*) FROM kullanicilar WHERE rol = 'admin'")->fetchColumn();
+        if ($say > 0) {
+            $admin_var_mi = true;
+        }
+    }
+} catch (Exception $e) {
+    // Veritabanı veya tablo henüz yok, doğal olarak admin de yok
+}
+?>
 <div class="card">
     <div class="card-title">👤 Admin Hesabı Oluştur</div>
     <div class="card-desc">Bu hesap sisteme tam yetkiyle erişebilir. Güçlü bir şifre belirleyin.</div>
+
+    <?php if ($admin_var_mi): ?>
+    <div style="background-color: rgba(180, 83, 9, 0.1); border: 1px solid rgba(217, 119, 6, 0.5); border-radius: 8px; padding: 16px; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 1rem;">
+    
+		<div style="color: #f59e0b; flex-shrink: 0; margin-top: 2px;">
+			<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+				<line x1="12" y1="9" x2="12" y2="13"></line>
+				<line x1="12" y1="17" x2="12.01" y2="17"></line>
+			</svg>
+		</div>
+
+		<div>
+			<h4 style="color: #f59e0b; margin: 0 0 4px 0; font-weight: 600; font-size: 15px;">Sistemde zaten bir admin hesabı bulunuyor.</h4>
+			<p style="color: #d97706; margin: 0; font-size: 14px; line-height: 1.5;">
+				Yeni bir hesap oluşturmak istemiyorsanız, aşağıdaki <strong style="color: #fcd34d;">Atla ve Bitir</strong> butonunu kullanarak bu adımı geçebilirsiniz.
+			</p>
+		</div>
+	</div>
+    <?php endif; ?>
 
     <?php foreach ($hatalar as $h): ?>
     <div class="alert alert-danger">⚠️ <?= htmlspecialchars($h) ?></div>
@@ -647,14 +463,20 @@ function renderEngel(): string {
         <hr class="divider">
         <div style="display:flex;justify-content:space-between;align-items:center;">
             <a href="?adim=2" class="btn btn-secondary">← Geri</a>
-            <button type="submit" class="btn btn-primary" id="adim3_btn">
-                ⚙️ Kurulumu Tamamla
-            </button>
+            <div style="display:flex; gap: 10px;">
+                <?php if ($admin_var_mi): ?>
+                <button type="submit" name="skip_admin" value="1" class="btn btn-warning" formnovalidate>
+                    Atla ve Bitir ⏭️
+                </button>
+                <?php endif; ?>
+                <button type="submit" class="btn btn-primary" id="adim3_btn">
+                    ⚙️ Kurulumu Tamamla
+                </button>
+            </div>
         </div>
     </form>
 </div>
 
-<!-- ════ ADIM 2: VERİTABANI ════ -->
 <?php elseif ($adim === 2): ?>
 <div class="card">
     <div class="card-title">🗄️ Veritabanı Ayarları</div>
@@ -711,7 +533,6 @@ function renderEngel(): string {
     </form>
 </div>
 
-<!-- ════ ADIM 1: GEREKSİNİMLER ════ -->
 <?php else: ?>
 <div class="card">
     <div class="card-title">🔍 Sistem Gereksinimleri</div>
