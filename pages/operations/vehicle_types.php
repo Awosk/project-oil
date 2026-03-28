@@ -20,20 +20,21 @@ $ku = mevcutKullanici();
 // ── EKLE ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     csrfDogrula();
-    $tur_adi = trim($_POST['tur_adi']);
+    $tur_adi  = trim($_POST['tur_adi']);
+    $oncelik  = max(1, (int)($_POST['oncelik'] ?? 1));
     if ($tur_adi) {
         $mevcut = $pdo->prepare("SELECT * FROM lite_arac_turleri WHERE tur_adi = ?");
         $mevcut->execute([$tur_adi]); $mevcut = $mevcut->fetch();
         if ($mevcut && $mevcut['aktif'] == 0) {
-            $pdo->prepare("UPDATE lite_arac_turleri SET aktif=1 WHERE id=?")->execute([$mevcut['id']]);
-            logYaz($pdo,'ekle','arac_tur','Silinen araç türü reaktif edildi: '.$tur_adi, $mevcut['id'], null, ['tur_adi'=>$tur_adi], 'lite');
+            $pdo->prepare("UPDATE lite_arac_turleri SET aktif=1, oncelik=? WHERE id=?")->execute([$oncelik, $mevcut['id']]);
+            logYaz($pdo,'ekle','arac_tur','Silinen araç türü reaktif edildi: '.$tur_adi, $mevcut['id'], null, ['tur_adi'=>$tur_adi,'oncelik'=>$oncelik], 'lite');
             flash('Daha önce silinmiş araç türü tekrar aktif edildi.');
         } elseif ($mevcut && $mevcut['aktif'] == 1) {
             flash('Bu araç türü zaten kayıtlı.', 'danger');
         } else {
-            $pdo->prepare("INSERT INTO lite_arac_turleri (tur_adi) VALUES (?)")->execute([$tur_adi]);
+            $pdo->prepare("INSERT INTO lite_arac_turleri (tur_adi, oncelik) VALUES (?, ?)")->execute([$tur_adi, $oncelik]);
             $yeni_id = $pdo->lastInsertId();
-            logYaz($pdo,'ekle','arac_tur','Araç türü eklendi: '.$tur_adi, $yeni_id, null, ['tur_adi'=>$tur_adi], 'lite');
+            logYaz($pdo,'ekle','arac_tur','Araç türü eklendi: '.$tur_adi.' (öncelik:'.$oncelik.')', $yeni_id, null, ['tur_adi'=>$tur_adi,'oncelik'=>$oncelik], 'lite');
             flash('Araç türü eklendi.');
         }
     } else {
@@ -47,6 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
     csrfDogrula();
     $did     = (int)$_POST['duzenle_id'];
     $tur_adi = trim($_POST['duzenle_tur_adi']);
+    $oncelik = max(1, (int)($_POST['duzenle_oncelik'] ?? 1));
     if ($did && $tur_adi) {
         $sr = $pdo->prepare('SELECT * FROM lite_arac_turleri WHERE id=?');
         $sr->execute([$did]); $sr = $sr->fetch();
@@ -55,9 +57,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
         if ($cakisma->fetch()) {
             flash('Bu araç türü adı zaten kullanımda.', 'danger');
         } else {
-            $pdo->prepare("UPDATE lite_arac_turleri SET tur_adi=? WHERE id=?")->execute([$tur_adi, $did]);
-            logYaz($pdo,'guncelle','arac_tur','Araç türü güncellendi: '.$tur_adi, $did,
-                ['tur_adi' => $sr['tur_adi']], ['tur_adi' => $tur_adi], 'lite');
+            $pdo->prepare("UPDATE lite_arac_turleri SET tur_adi=?, oncelik=? WHERE id=?")->execute([$tur_adi, $oncelik, $did]);
+            logYaz($pdo,'guncelle','arac_tur','Araç türü güncellendi: '.$tur_adi.' (öncelik:'.$oncelik.')', $did,
+                ['tur_adi' => $sr['tur_adi'], 'oncelik' => $sr['oncelik']],
+                ['tur_adi' => $tur_adi, 'oncelik' => $oncelik], 'lite');
             flash('Araç türü güncellendi.');
         }
     } else {
@@ -69,7 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
 // ── SİL ──
 if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
-    // Kulllanımda mı kontrol et
     $kullanimda = $pdo->prepare("SELECT COUNT(*) FROM lite_araclar WHERE arac_turu_id=? AND aktif=1");
     $kullanimda->execute([$sil_id]);
     if ((int)$kullanimda->fetchColumn() > 0) {
@@ -90,7 +92,7 @@ $turler = $pdo->query("
     LEFT JOIN lite_araclar a ON a.arac_turu_id = t.id AND a.aktif = 1
     WHERE t.aktif = 1
     GROUP BY t.id
-    ORDER BY t.tur_adi
+    ORDER BY t.oncelik ASC, t.tur_adi
 ")->fetchAll();
 
 require_once __DIR__ . '/../../includes/header.php';
@@ -109,6 +111,10 @@ require_once __DIR__ . '/../../includes/header.php';
                 <label>Araç Türü Adı *</label>
                 <input type="text" name="tur_adi" required placeholder="Örn: Damper" maxlength="100" autofocus>
             </div>
+            <div class="form-group">
+                <label>Öncelik <span style="font-weight:400;color:var(--muted);font-size:11px;">(küçük = üstte)</span></label>
+                <input type="number" name="oncelik" min="1" value="1" placeholder="1">
+            </div>
         </div>
         <div style="margin-top:14px;">
             <button type="submit" name="ekle" class="btn btn-primary">💾 Ekle</button>
@@ -125,16 +131,20 @@ require_once __DIR__ . '/../../includes/header.php';
         <table>
             <thead>
                 <tr>
-                    <th>#</th>
+                    <th>Öncelik</th>
                     <th>Tür Adı</th>
                     <th>Araç Sayısı</th>
                     <th>İşlem</th>
                 </tr>
             </thead>
             <tbody>
-            <?php foreach ($turler as $i => $t): ?>
+            <?php foreach ($turler as $t): ?>
             <tr>
-                <td><?= $i + 1 ?></td>
+                <td>
+                    <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;font-weight:700;">
+                        <?= (int)$t['oncelik'] ?>
+                    </span>
+                </td>
                 <td><strong><?= htmlspecialchars($t['tur_adi']) ?></strong></td>
                 <td>
                     <?php if ($t['arac_sayisi'] > 0): ?>
@@ -145,7 +155,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </td>
                 <td style="display:flex;gap:6px;flex-wrap:wrap;">
                     <button class="btn btn-sm btn-secondary"
-                        onclick="turDuzenleModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['tur_adi'], ENT_QUOTES) ?>')">
+                        onclick="turDuzenleModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['tur_adi'], ENT_QUOTES) ?>', <?= (int)$t['oncelik'] ?>)">
                         ✏️ Düzenle
                     </button>
                     <?php if ($t['arac_sayisi'] == 0): ?>
@@ -174,6 +184,10 @@ require_once __DIR__ . '/../../includes/header.php';
                 <label>Tür Adı *</label>
                 <input type="text" name="duzenle_tur_adi" id="duzenle_tur_adi" required maxlength="100">
             </div>
+            <div class="form-group">
+                <label>Öncelik <span style="font-weight:400;color:var(--muted);font-size:11px;">(küçük = üstte)</span></label>
+                <input type="number" name="duzenle_oncelik" id="duzenle_oncelik" min="1">
+            </div>
             <div style="display:flex;gap:8px;margin-top:16px;">
                 <button type="submit" name="duzenle" class="btn btn-primary" style="flex:1;">💾 Kaydet</button>
                 <button type="button" class="btn btn-secondary"
@@ -184,9 +198,10 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <script>
-function turDuzenleModal(id, tur_adi) {
-    document.getElementById('duzenle_tur_id').value  = id;
-    document.getElementById('duzenle_tur_adi').value = tur_adi;
+function turDuzenleModal(id, tur_adi, oncelik) {
+    document.getElementById('duzenle_tur_id').value   = id;
+    document.getElementById('duzenle_tur_adi').value  = tur_adi;
+    document.getElementById('duzenle_oncelik').value  = oncelik;
     var m = document.getElementById('turDuzenleModal');
     m.style.display = 'flex';
     setTimeout(() => document.getElementById('duzenle_tur_adi').focus(), 50);

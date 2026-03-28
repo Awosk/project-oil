@@ -22,6 +22,7 @@ $sayfa_basligi = 'Araçlar';
 $araclar = $pdo->query("
     SELECT a.*,
            t.tur_adi,
+           t.oncelik,
            k.ad_soyad AS olusturan_adi,
            COUNT(CASE WHEN lk.aktif = 1 THEN 1 END) AS kayit_sayisi,
            MAX(CASE WHEN lk.aktif = 1 THEN lk.tarih END) AS son_kayit
@@ -31,7 +32,7 @@ $araclar = $pdo->query("
     LEFT JOIN lite_kayitlar lk     ON lk.arac_id = a.id
     WHERE a.aktif = 1
     GROUP BY a.id
-    ORDER BY t.tur_adi, a.plaka
+    ORDER BY t.oncelik ASC, t.tur_adi, a.plaka
 ")->fetchAll();
 
 $arama = trim($_GET['q'] ?? '');
