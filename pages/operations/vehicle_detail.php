@@ -107,7 +107,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <?= htmlspecialchars($arac['plaka']) ?>
         <span class="badge badge-info" style="font-size:13px;"><?= htmlspecialchars($arac['tur_adi'] ?? '—') ?></span>
     </h1>
-    <a href="../index.php" class="btn btn-secondary btn-sm">← Geri</a>
+    <a href="../../index.php" class="btn btn-secondary btn-sm">← Geri</a>
 </div>
 
 <div class="card" style="padding:14px 16px;margin-bottom:14px;">
