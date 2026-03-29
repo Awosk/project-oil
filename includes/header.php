@@ -90,6 +90,7 @@
                 <li><a href="<?= ROOT_URL ?>pages/management/backup.php">💾 Veritabanı Yedekleme</a></li>
                 <li><a href="<?= ROOT_URL ?>pages/management/update.php">🔄 Sistem Güncelleme</a></li>
                 <li><a href="<?= ROOT_URL ?>pages/management/system_settings.php">⚙️ Sistem Ayarları</a></li>
+                <li><a href="<?= ROOT_URL ?>pages/management/mail_queue.php">📬 Mail Kuyruğu</a></li>
             </ul>
         </li>
         <?php endif; ?>
@@ -126,6 +127,7 @@
             <li><a href="<?= ROOT_URL ?>pages/management/backup.php" onclick="closeDrawer()">💾 Veritabanı Yedekleme</a></li>
             <li><a href="<?= ROOT_URL ?>pages/management/update.php" onclick="closeDrawer()">🔄 Sistem Güncelleme</a></li>
             <li><a href="<?= ROOT_URL ?>pages/management/system_settings.php" onclick="closeDrawer()">⚙️ Sistem Ayarları</a></li>
+            <li><a href="<?= ROOT_URL ?>pages/management/mail_queue.php" onclick="closeDrawer()">📬 Mail Kuyruğu</a></li>
             <?php endif; ?>
         </ul>
         <div class="nav-drawer-footer">
