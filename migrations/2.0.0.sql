@@ -220,7 +220,9 @@ ALTER TABLE `mail_queue`
     CHANGE `hata_mesaji` `error_message` text DEFAULT NULL;
 
 -- ═══════════════════════════════════════════════════════════════
--- 12. sistem_migrations → migrations
+-- 12. sistem_migrations drop
 -- ═══════════════════════════════════════════════════════════════
+
+DROP TABLE IF EXISTS sistem_migrations;
 
 SET foreign_key_checks = 1;
