@@ -234,5 +234,3 @@ ALTER TABLE `migrations`
 -- ═══════════════════════════════════════════════════════════════
 
 SET foreign_key_checks = 1;
-
-INSERT IGNORE INTO `migrations` (`version`) VALUES ('2.0.0');
