@@ -223,14 +223,4 @@ ALTER TABLE `mail_queue`
 -- 12. sistem_migrations → migrations
 -- ═══════════════════════════════════════════════════════════════
 
-RENAME TABLE `sistem_migrations` TO `migrations`;
-
-ALTER TABLE `migrations`
-    CHANGE `versiyon`        `version`    varchar(20) NOT NULL,
-    CHANGE `uygulandi_tarih` `applied_at` datetime    NOT NULL DEFAULT current_timestamp();
-
--- ═══════════════════════════════════════════════════════════════
--- 13. Migration kaydını ekle
--- ═══════════════════════════════════════════════════════════════
-
 SET foreign_key_checks = 1;
