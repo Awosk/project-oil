@@ -209,7 +209,7 @@ if (!$pdf_mod) require_once __DIR__ . '/../../includes/header.php';
                     <input type="checkbox" name="urun_ids[]" value="<?= $u['id'] ?>"
                            <?= in_array($u['id'], $f_urun_ids) ? 'checked' : '' ?>
                            style="display:none;" onchange="this.closest('label').style.background=this.checked?'var(--primary)':''; this.closest('label').style.color=this.checked?'#fff':''; this.closest('label').style.borderColor=this.checked?'var(--primary)':'var(--border)';">
-                    <?= htmlspecialchars($u['product_code']) ?>
+                    <?= htmlspecialchars($u['urun_kodu']) ?>
                 </label>
                 <?php endforeach; ?>
             </div>
@@ -229,7 +229,7 @@ $tur_etiket   = ['arac'=>'Araçlar','tesis'=>'Tesisler','tumu'=>'Tümü'][$f_tur
 $secili_urun_adlari = [];
 if (!empty($f_urun_ids)) {
     foreach ($tum_urunler as $u) {
-        if (in_array($u['id'], $f_urun_ids)) $secili_urun_adlari[] = $u['product_code'];
+        if (in_array($u['id'], $f_urun_ids)) $secili_urun_adlari[] = $u['urun_kodu'];
     }
 }
 ?>
@@ -292,8 +292,8 @@ if (!empty($f_urun_ids)) {
             <tbody>
             <?php foreach ($urun_ozet as $o): ?>
             <tr>
-                <td><code><?= htmlspecialchars($o['product_code']) ?></code></td>
-                <td><?= htmlspecialchars($o['product_name']) ?></td>
+                <td><code><?= htmlspecialchars($o['urun_kodu']) ?></code></td>
+                <td><?= htmlspecialchars($o['urun_adi']) ?></td>
                 <td><?= $o['adet'] ?></td>
                 <td><strong><?= number_format($o['toplam'], 2, ',', '.') ?> L</strong></td>
             </tr>
@@ -346,8 +346,8 @@ if (!empty($f_urun_ids)) {
             <tr>
                 <td><?= date('d.m.Y', strtotime($r['date'])) ?></td>
                 <td><?= $r['record_type']==='arac' ? '<span class="badge badge-info">🚗 Araç</span>' : '<span class="badge badge-success">🏭 Tesis</span>' ?></td>
-                <td><?php if ($r['record_type']==='arac'): ?><strong><?= htmlspecialchars($r['plate']) ?></strong><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['brand_model']) ?></span><?php else: ?><strong><?= htmlspecialchars($r['name']) ?></strong><?php endif; ?></td>
-                <td><code><?= htmlspecialchars($r['product_code']) ?></code><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['product_name']) ?></span></td>
+                <td><?php if ($r['record_type']==='arac'): ?><strong><?= htmlspecialchars($r['plaka']) ?></strong><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['marka_model']) ?></span><?php else: ?><strong><?= htmlspecialchars($r['firma_adi']) ?></strong><?php endif; ?></td>
+                <td><code><?= htmlspecialchars($r['urun_kodu']) ?></code><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['urun_adi']) ?></span></td>
                 <td><strong><?= number_format($r['quantity'], 2, ',', '.') ?> L</strong></td>
                 <td><?= htmlspecialchars($r['ad_soyad'] ?? '-') ?></td>
                 <td style="font-size:12px;color:var(--muted);">

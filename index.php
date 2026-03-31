@@ -76,7 +76,7 @@ require_once __DIR__ . '/includes/header.php';
         <div class="arac-card-plaka"><?= htmlspecialchars($a['plate']) ?></div>
         <div class="arac-card-model"><?= htmlspecialchars($a['brand_model']) ?></div>
         <div class="arac-card-meta">
-            <span class="badge badge-info arac-card-tur"><?= htmlspecialchars($a['type_name'] ?? '—') ?></span>
+            <span class="badge badge-info arac-card-tur"><?= htmlspecialchars($a['tur_adi'] ?? '—') ?></span>
             <span class="arac-card-sayi">
                 <?php if ($a['kayit_sayisi'] > 0): ?>
                 📋 <?= $a['kayit_sayisi'] ?> kayıt

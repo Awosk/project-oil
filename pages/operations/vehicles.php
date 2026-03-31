@@ -130,7 +130,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <select name="arac_turu_id" required <?= empty($arac_turleri) ? 'disabled' : '' ?>>
                     <option value="">-- Seçin --</option>
                     <?php foreach ($arac_turleri as $t): ?>
-                    <option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['type_name']) ?></option>
+                    <option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['tur_adi']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -192,7 +192,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <label>Araç Türü *</label>
                 <select name="duzenle_tur_id" id="duzenle_tur_id" required>
                     <?php foreach ($arac_turleri as $t): ?>
-                    <option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['type_name']) ?></option>
+                    <option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['tur_adi']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>

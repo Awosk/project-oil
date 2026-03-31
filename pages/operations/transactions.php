@@ -264,10 +264,10 @@ require_once __DIR__ . '/../../includes/header.php';
              onclick="window.location='<?= $detay_url ?>'" style="cursor:pointer;">
             <div class="islem-hedef">
                 <?php if ($k['record_type'] === 'arac'): ?>
-                <a href="vehicle_detail.php?id=<?= $k['vehicle_id'] ?>" class="islem-plaka">🚗 <?= htmlspecialchars($k['plate']) ?></a>
-                <div class="islem-alt"><?= htmlspecialchars($k['brand_model']) ?></div>
+                <a href="vehicle_detail.php?id=<?= $k['vehicle_id'] ?>" class="islem-plaka">🚗 <?= htmlspecialchars($k['plaka']) ?></a>
+                <div class="islem-alt"><?= htmlspecialchars($k['marka_model']) ?></div>
                 <?php else: ?>
-                <a href="facility_detail.php?id=<?= $k['facility_id'] ?>" class="islem-plaka">🏭 <?= htmlspecialchars($k['name']) ?></a>
+                <a href="facility_detail.php?id=<?= $k['facility_id'] ?>" class="islem-plaka">🏭 <?= htmlspecialchars($k['firma_adi']) ?></a>
                 <div class="islem-alt">Tesis / Şantiye</div>
                 <?php endif; ?>
             </div>

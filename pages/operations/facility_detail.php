@@ -167,7 +167,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="kayit-miktar"><?= formatliMiktar($k['quantity']) ?></div>
             <button class="btn btn-sm btn-secondary" style="flex-shrink:0;font-size:11px;padding:4px 8px;"
                 onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['notes'] ?? '', ENT_QUOTES) ?>')" title="Açıklama düzenle">✏️</button>
-            <button class="kayit-sil" onclick="if(confirm('Bu kaydı silmek istiyor musunuz?')) location.href='tesis_detay.php?id=<?= $id ?>&sil=<?= $k['id'] ?>'" title="Sil">🗑️</button>
+            <button class="kayit-sil" onclick="if(confirm('Bu kaydı silmek istiyor musunuz?')) location.href='facility_detail.php?id=<?= $id ?>&sil=<?= $k['id'] ?>'" title="Sil">🗑️</button>
         </div>
         <?php endforeach; ?>
     </div>
