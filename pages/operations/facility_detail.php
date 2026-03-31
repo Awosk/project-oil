@@ -18,12 +18,12 @@ $id = (int)($_GET['id'] ?? 0);
 if (!$id) { header('Location: facilities.php'); exit; }
 $ku = mevcutKullanici();
 
-$tesis = $pdo->prepare("SELECT * FROM lite_tesisler WHERE id=? AND aktif=1");
+$tesis = $pdo->prepare("SELECT * FROM facilities WHERE id=? AND is_active=1");
 $tesis->execute([$id]);
 $tesis = $tesis->fetch();
 if (!$tesis) { flash('Tesis bulunamadı.', 'danger'); header('Location: facilities.php'); exit; }
 
-$sayfa_basligi = $tesis['firma_adi'];
+$sayfa_basligi = $tesis['name'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     csrfDogrula();
@@ -34,16 +34,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
 
     if ($urun_id && $miktar > 0 && $tarih) {
         $stmt = $pdo->prepare("
-            INSERT INTO lite_kayitlar (kayit_turu, tesis_id, urun_id, miktar, tarih, aciklama, olusturan_id)
+            INSERT INTO oil_records (record_type, facility_id, product_id, quantity, date, notes, created_by)
             VALUES ('tesis', ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([$id, $urun_id, $miktar, $tarih, $aciklama ?: null, $ku['id']]);
         $yeni_id = $pdo->lastInsertId();
-        $urun_adi_log = $pdo->prepare('SELECT urun_kodu, urun_adi FROM lite_urunler WHERE id=?'); $urun_adi_log->execute([$urun_id]); $urun_adi_log = $urun_adi_log->fetch();
+        $urun_adi_log = $pdo->prepare('SELECT product_code, product_name FROM products WHERE id=?'); $urun_adi_log->execute([$urun_id]); $urun_adi_log = $urun_adi_log->fetch();
         logYaz($pdo,'ekle','tesis_kayit',
-            $tesis['firma_adi'].' tesisine yağ eklendi: '.($urun_adi_log['urun_kodu']??'').' - '.($urun_adi_log['urun_adi']??'').', '.$miktar.'L, tarih:'.$tarih.'. Açıklama: '.($aciklama ?? 'Yok'),
+            $tesis['name'].' tesisine yağ eklendi: '.($urun_adi_log['product_code']??'').' - '.($urun_adi_log['product_name']??'').', '.$miktar.'L, tarih:'.$tarih.'. Açıklama: '.($aciklama ?? 'Yok'),
             $yeni_id, null,
-            ['tesis_id'=>$id,'firma'=>$tesis['firma_adi'],'urun_id'=>$urun_id,'miktar'=>$miktar,'tarih'=>$tarih,'aciklama'=>$aciklama],
+            ['facility_id'=>$id,'name'=>$tesis['name'],'product_id'=>$urun_id,'quantity'=>$miktar,'date'=>$tarih,'notes'=>$aciklama],
             'lite');
         flash('Kayıt eklendi.');
     } else {
@@ -56,11 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
     csrfDogrula();
     $kayit_id      = (int)$_POST['kayit_id'];
     $yeni_aciklama = trim($_POST['aciklama_yeni'] ?? '');
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,u.urun_adi FROM lite_kayitlar lk JOIN lite_urunler u ON lk.urun_id=u.id WHERE lk.id=? AND lk.tesis_id=? AND lk.aktif=1');
+    $sr = $pdo->prepare('SELECT lk.*,u.product_code AS urun_kodu,u.product_name AS urun_adi FROM oil_records lk JOIN products u ON lk.product_id=u.id WHERE lk.id=? AND lk.facility_id=? AND lk.is_active=1');
     $sr->execute([$kayit_id, $id]); $sr = $sr->fetch();
     if ($sr) {
-        $pdo->prepare("UPDATE lite_kayitlar SET aciklama=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
-        logYaz($pdo,'guncelle','tesis_kayit', $tesis['firma_adi'].' Adlı Firmanın '.$sr['urun_kodu'].' kaydının açıklaması güncellendi', $kayit_id, ['aciklama'=>$sr['aciklama']], ['aciklama'=>$yeni_aciklama], 'lite');
+        $pdo->prepare("UPDATE oil_records SET notes=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
+        logYaz($pdo,'guncelle','tesis_kayit', $tesis['name'].' Adlı Firmanın '.$sr['urun_kodu'].' kaydının açıklaması güncellendi', $kayit_id, ['notes'=>$sr['notes']], ['notes'=>$yeni_aciklama], 'lite');
         flash('Açıklama güncellendi.');
     }
     header('Location: facility_detail.php?id='.$id); exit;
@@ -68,24 +68,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
 
 if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
-    $sr = $pdo->prepare('SELECT lk.*, u.urun_kodu, u.urun_adi FROM lite_kayitlar lk JOIN lite_urunler u ON lk.urun_id=u.id WHERE lk.id=? AND lk.tesis_id=?');
+    $sr = $pdo->prepare('SELECT lk.*, u.product_code AS urun_kodu, u.product_name AS urun_adi FROM oil_records lk JOIN products u ON lk.product_id=u.id WHERE lk.id=? AND lk.facility_id=?');
     $sr->execute([$sil_id, $id]); $sr = $sr->fetch();
-    $pdo->prepare("UPDATE lite_kayitlar SET aktif=0 WHERE id=? AND tesis_id=?")->execute([$sil_id, $id]);
+    $pdo->prepare("UPDATE oil_records SET is_active=0 WHERE id=? AND facility_id=?")->execute([$sil_id, $id]);
     if ($sr) logYaz($pdo,'sil','tesis_kayit',
-        $tesis['firma_adi'].' tesisinden yağ kaydı silindi: '.$sr['urun_kodu'].' - '.$sr['urun_adi'].', '.$sr['miktar'].'L, tarih:'.$sr['tarih'].'. Açıklama: '.($sr['aciklama'] ?? 'Yok'),
+        $tesis['name'].' tesisinden yağ kaydı silindi: '.$sr['urun_kodu'].' - '.$sr['urun_adi'].', '.$sr['quantity'].'L, tarih:'.$sr['date'].'. Açıklama: '.($sr['notes'] ?? 'Yok'),
         $sil_id, $sr, null, 'lite');
     flash('Kayıt silindi.');
     header('Location: facility_detail.php?id=' . $id); exit;
 }
 
-$urunler  = $pdo->query("SELECT * FROM lite_urunler WHERE aktif=1 ORDER BY urun_adi")->fetchAll();
+$urunler  = $pdo->query("SELECT * FROM products WHERE is_active=1 ORDER BY product_name")->fetchAll();
 $kayitlar = $pdo->prepare("
-    SELECT lk.*, u.urun_adi, u.urun_kodu, k.ad_soyad
-    FROM lite_kayitlar lk
-    JOIN lite_urunler u ON lk.urun_id = u.id
-    LEFT JOIN kullanicilar k ON lk.olusturan_id = k.id
-    WHERE lk.tesis_id = ? AND lk.aktif = 1
-    ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
+    SELECT lk.*, u.product_name AS urun_adi, u.product_code AS urun_kodu, k.full_name AS ad_soyad
+    FROM oil_records lk
+    JOIN products u ON lk.product_id = u.id
+    LEFT JOIN users k ON lk.created_by = k.id
+    WHERE lk.facility_id = ? AND lk.is_active = 1
+    ORDER BY lk.date DESC, lk.created_at DESC
 ");
 $kayitlar->execute([$id]);
 $kayitlar = $kayitlar->fetchAll();
@@ -94,7 +94,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 
 <div class="page-header">
-    <h1><span>🏭</span> <?= htmlspecialchars($tesis['firma_adi']) ?></h1>
+    <h1><span>🏭</span> <?= htmlspecialchars($tesis['name']) ?></h1>
     <a href="facilities.php" class="btn btn-secondary btn-sm">← Geri</a>
 </div>
 
@@ -102,7 +102,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
         <div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;">Adres</div>
-            <div style="font-weight:600;"><?= htmlspecialchars($tesis['firma_adresi']) ?></div>
+            <div style="font-weight:600;"><?= htmlspecialchars($tesis['address']) ?></div>
         </div>
         <div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;">Toplam Kayıt</div>
@@ -121,7 +121,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <select name="urun_id" required>
                     <option value="">-- Ürün Seçin --</option>
                     <?php foreach ($urunler as $u): ?>
-                    <option value="<?= $u['id'] ?>"><?= htmlspecialchars($u['urun_kodu'] . ' - ' . $u['urun_adi']) ?></option>
+                    <option value="<?= $u['id'] ?>"><?= htmlspecialchars($u['product_code'] . ' - ' . $u['product_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -158,15 +158,15 @@ require_once __DIR__ . '/../../includes/header.php';
                     <small><?= htmlspecialchars($k['urun_kodu']) ?></small>
                 </div>
                 <div class="kayit-meta">
-                    🛢️ <strong title="Yağın verildiği tarih"><?= formatliTarih($k['tarih']) ?></strong>
-                    <span class="kayit-giris-tarihi">· 🕐 <?= formatliTarih($k['olusturma_tarihi']) ?></span>
+                    🛢️ <strong title="Yağın verildiği tarih"><?= formatliTarih($k['date']) ?></strong>
+                    <span class="kayit-giris-tarihi">· 🕐 <?= formatliTarih($k['created_at']) ?></span>
                     · 👤 <?= htmlspecialchars($k['ad_soyad'] ?? '-') ?>
-                    <?php if ($k['aciklama']): ?> · <?= htmlspecialchars($k['aciklama']) ?><?php endif; ?>
+                    <?php if ($k['notes']): ?> · <?= htmlspecialchars($k['notes']) ?><?php endif; ?>
                 </div>
             </div>
-            <div class="kayit-miktar"><?= formatliMiktar($k['miktar']) ?></div>
+            <div class="kayit-miktar"><?= formatliMiktar($k['quantity']) ?></div>
             <button class="btn btn-sm btn-secondary" style="flex-shrink:0;font-size:11px;padding:4px 8px;"
-                onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>')" title="Açıklama düzenle">✏️</button>
+                onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['notes'] ?? '', ENT_QUOTES) ?>')" title="Açıklama düzenle">✏️</button>
             <button class="kayit-sil" onclick="if(confirm('Bu kaydı silmek istiyor musunuz?')) location.href='tesis_detay.php?id=<?= $id ?>&sil=<?= $k['id'] ?>'" title="Sil">🗑️</button>
         </div>
         <?php endforeach; ?>

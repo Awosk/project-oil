@@ -22,19 +22,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     $kod = strtoupper(trim($_POST['urun_kodu']));
     $adi = trim($_POST['urun_adi']);
     if ($kod && $adi) {
-        $mevcut = $pdo->prepare("SELECT * FROM lite_urunler WHERE urun_kodu=?");
+        $mevcut = $pdo->prepare("SELECT * FROM products WHERE product_code=?");
         $mevcut->execute([$kod]); $mevcut = $mevcut->fetch();
-        if ($mevcut && $mevcut['aktif'] == 0) {
-            $pdo->prepare("UPDATE lite_urunler SET urun_adi=?, olusturan_id=?, aktif=1 WHERE id=?")->execute([$adi, $ku['id'], $mevcut['id']]);
-            logYaz($pdo,'ekle','urun','Silinen ürün reaktif edildi: '.$kod.' - '.$adi, $mevcut['id'], null, ['kod'=>$kod,'adi'=>$adi], 'lite');
+        if ($mevcut && $mevcut['is_active'] == 0) {
+            $pdo->prepare("UPDATE products SET product_name=?, created_by=?, is_active=1 WHERE id=?")->execute([$adi, $ku['id'], $mevcut['id']]);
+            logYaz($pdo,'ekle','urun','Silinen ürün reaktif edildi: '.$kod.' - '.$adi, $mevcut['id'], null, ['product_code'=>$kod,'product_name'=>$adi], 'lite');
             flash('Daha önce silinmiş ürün tekrar aktif edildi.');
         } elseif ($mevcut && $mevcut['aktif'] == 1) {
             flash('Bu ürün kodu zaten kayıtlı.', 'danger');
         } else {
             try {
-                $pdo->prepare("INSERT INTO lite_urunler (urun_kodu, urun_adi, olusturan_id) VALUES (?,?,?)")->execute([$kod, $adi, $ku['id']]);
+                $pdo->prepare("INSERT INTO products (product_code, product_name, created_by) VALUES (?,?,?)")->execute([$kod, $adi, $ku['id']]);
                 $yeni_id = $pdo->lastInsertId();
-                logYaz($pdo,'ekle','urun','Ürün eklendi: '.$kod.' - '.$adi, $yeni_id, null, ['kod'=>$kod,'adi'=>$adi], 'lite');
+                logYaz($pdo,'ekle','urun','Ürün eklendi: '.$kod.' - '.$adi, $yeni_id, null, ['product_code'=>$kod,'product_name'=>$adi], 'lite');
                 flash('Ürün eklendi.');
             } catch (PDOException $e) { flash('Bir hata oluştu.', 'danger'); }
         }
@@ -48,16 +48,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
     $kod = strtoupper(trim($_POST['duzenle_kod']));
     $adi = trim($_POST['duzenle_adi']);
     if ($did && $kod && $adi) {
-        $sr = $pdo->prepare('SELECT * FROM lite_urunler WHERE id=?'); $sr->execute([$did]); $sr = $sr->fetch();
-        $cakisma = $pdo->prepare("SELECT id FROM lite_urunler WHERE urun_kodu=? AND id!=? AND aktif=1");
+        $sr = $pdo->prepare('SELECT * FROM products WHERE id=?'); $sr->execute([$did]); $sr = $sr->fetch();
+        $cakisma = $pdo->prepare("SELECT id FROM products WHERE product_code=? AND id!=? AND is_active=1");
         $cakisma->execute([$kod, $did]);
         if ($cakisma->fetch()) {
             flash('Bu ürün kodu başka bir üründe kayıtlı.', 'danger');
         } else {
-            $pdo->prepare("UPDATE lite_urunler SET urun_kodu=?, urun_adi=? WHERE id=?")->execute([$kod, $adi, $did]);
+            $pdo->prepare("UPDATE products SET product_code=?, product_name=? WHERE id=?")->execute([$kod, $adi, $did]);
             logYaz($pdo,'guncelle','urun','Ürün güncellendi: '.$kod.' - '.$adi, $did,
-                ['urun_kodu'=>$sr['urun_kodu'],'urun_adi'=>$sr['urun_adi']],
-                ['urun_kodu'=>$kod,'urun_adi'=>$adi], 'lite');
+                ['product_code'=>$sr['product_code'],'product_name'=>$sr['product_name']],
+                ['product_code'=>$kod,'product_name'=>$adi], 'lite');
             flash('Ürün güncellendi.');
         }
     } else { flash('Tüm alanlar zorunludur.', 'danger'); }
@@ -66,14 +66,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
 
 if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
-    $sr = $pdo->prepare('SELECT * FROM lite_urunler WHERE id=?'); $sr->execute([$sil_id]); $sr = $sr->fetch();
-    $pdo->prepare("UPDATE lite_urunler SET aktif=0 WHERE id=?")->execute([$sil_id]);
-    if ($sr) logYaz($pdo,'sil','urun','Ürün silindi: '.$sr['urun_kodu'].' - '.$sr['urun_adi'], $sil_id, $sr, null, 'lite');
+    $sr = $pdo->prepare('SELECT * FROM products WHERE id=?'); $sr->execute([$sil_id]); $sr = $sr->fetch();
+    $pdo->prepare("UPDATE products SET is_active=0 WHERE id=?")->execute([$sil_id]);
+    if ($sr) logYaz($pdo,'sil','urun','Ürün silindi: '.$sr['product_code'].' - '.$sr['product_name'], $sil_id, $sr, null, 'lite');
     flash('Ürün silindi.');
     header('Location: products.php'); exit;
 }
 
-$urunler = $pdo->query("SELECT u.*, k.ad_soyad FROM lite_urunler u LEFT JOIN kullanicilar k ON u.olusturan_id=k.id WHERE u.aktif=1 ORDER BY u.urun_adi")->fetchAll();
+$urunler = $pdo->query("SELECT u.*, k.full_name AS ad_soyad FROM products u LEFT JOIN users k ON u.created_by=k.id WHERE u.is_active=1 ORDER BY u.product_name")->fetchAll();
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -114,12 +114,12 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php foreach ($urunler as $i => $u): ?>
             <tr>
                 <td><?= $i+1 ?></td>
-                <td><strong><?= htmlspecialchars($u['urun_kodu']) ?></strong></td>
-                <td><?= htmlspecialchars($u['urun_adi']) ?></td>
+                <td><strong><?= htmlspecialchars($u['product_code']) ?></strong></td>
+                <td><?= htmlspecialchars($u['product_name']) ?></td>
                 <td><?= htmlspecialchars($u['ad_soyad'] ?? '-') ?></td>
                 <td style="display:flex;gap:6px;flex-wrap:wrap;">
                     <button class="btn btn-sm btn-secondary"
-                        onclick="urunDuzenleModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['urun_kodu'], ENT_QUOTES) ?>', '<?= htmlspecialchars($u['urun_adi'], ENT_QUOTES) ?>')">✏️ Düzenle</button>
+                        onclick="urunDuzenleModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['product_code'], ENT_QUOTES) ?>', '<?= htmlspecialchars($u['product_name'], ENT_QUOTES) ?>')">✏️ Düzenle</button>
                     <a href="?sil=<?= $u['id'] ?>" class="btn btn-sm btn-danger" onclick="return confirm('Silmek istediğinize emin misiniz?')">🗑️ Sil</a>
                 </td>
             </tr>

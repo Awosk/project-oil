@@ -20,7 +20,7 @@ $ku = mevcutKullanici();
 // ── TEK MAIL YENİDEN KUYRUĞA EKLE (retry) ──
 if (isset($_GET['retry'])) {
     $rid = (int)$_GET['retry'];
-    $pdo->prepare("UPDATE mail_queue SET status='pending', attempt_count=0, hata_mesaji=NULL WHERE id=? AND status IN ('failed','cancelled')")
+    $pdo->prepare("UPDATE mail_queue SET status='pending', attempt_count=0, error_message=NULL WHERE id=? AND status IN ('failed','cancelled')")
         ->execute([$rid]);
     flash('Mail yeniden kuyruğa eklendi.');
     header('Location: mail_queue.php'); exit;
@@ -43,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toplu_islem'])) {
         $silinen = $pdo->exec("DELETE FROM mail_queue WHERE status IN ('sent','failed','cancelled')");
         flash($silinen . ' adet tamamlanmış mail silindi.');
     } elseif ($islem === 'retry_hepsi') {
-        $guncellenen = $pdo->exec("UPDATE mail_queue SET status='pending', attempt_count=0, hata_mesaji=NULL WHERE status IN ('failed','cancelled')");
+        $guncellenen = $pdo->exec("UPDATE mail_queue SET status='pending', attempt_count=0, error_message=NULL WHERE status IN ('failed','cancelled')");
         flash($guncellenen . ' adet mail yeniden kuyruğa alındı.');
     } elseif ($islem === 'iptal_pending') {
         $guncellenen = $pdo->exec("UPDATE mail_queue SET status='cancelled' WHERE status='pending'");
@@ -388,9 +388,9 @@ require_once __DIR__ . '/../../includes/header.php';
                     <span style="color:var(--success-text);">✅ Gönderilme: <?= date('d.m.Y H:i', strtotime($m['sent_at'])) ?></span>
                     <?php endif; ?>
                 </div>
-                <?php if ($m['hata_mesaji']): ?>
+                <?php if ($m['error_message']): ?>
                 <div class="sq-hata">
-                    ⚠️ <strong>Hata:</strong> <?= htmlspecialchars($m['hata_mesaji']) ?>
+                    ⚠️ <strong>Hata:</strong> <?= htmlspecialchars($m['error_message']) ?>
                 </div>
                 <?php endif; ?>
             </div>

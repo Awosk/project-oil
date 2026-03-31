@@ -17,20 +17,20 @@ $sayfa_basligi = 'Tesisler';
 
 $tesisler = $pdo->query("
     SELECT t.*,
-           COUNT(CASE WHEN lk.aktif = 1 THEN 1 END) AS kayit_sayisi,
-           MAX(CASE WHEN lk.aktif = 1 THEN lk.tarih END) AS son_kayit
-    FROM lite_tesisler t
-    LEFT JOIN lite_kayitlar lk ON lk.tesis_id = t.id
-    WHERE t.aktif = 1
+           COUNT(CASE WHEN lk.is_active = 1 THEN 1 END) AS kayit_sayisi,
+           MAX(CASE WHEN lk.is_active = 1 THEN lk.date END) AS son_kayit
+    FROM facilities t
+    LEFT JOIN oil_records lk ON lk.facility_id = t.id
+    WHERE t.is_active = 1
     GROUP BY t.id
-    ORDER BY t.firma_adi
+    ORDER BY t.name
 ")->fetchAll();
 
 $arama = trim($_GET['q'] ?? '');
 if ($arama) {
     $tesisler = array_filter($tesisler, function($t) use ($arama) {
-        return stripos($t['firma_adi'], $arama) !== false
-            || stripos($t['firma_adresi'], $arama) !== false;
+        return stripos($t['name'], $arama) !== false
+            || stripos($t['address'], $arama) !== false;
     });
 }
 
@@ -58,8 +58,8 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="arac-grid">
     <?php foreach ($tesisler as $t): ?>
     <a href="facility_detail.php?id=<?= $t['id'] ?>" class="arac-card">
-        <div class="arac-card-plaka" style="font-size:16px;"><?= htmlspecialchars($t['firma_adi']) ?></div>
-        <div class="arac-card-model"><?= htmlspecialchars($t['firma_adresi']) ?></div>
+        <div class="arac-card-plaka" style="font-size:16px;"><?= htmlspecialchars($t['name']) ?></div>
+        <div class="arac-card-model"><?= htmlspecialchars($t['address']) ?></div>
         <div class="arac-card-meta">
             <span class="badge badge-primary">🏭 Tesis</span>
             <span class="arac-card-sayi">

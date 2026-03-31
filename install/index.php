@@ -120,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['adim3']) || isset($_
 
                 if (!$skip_admin) {
                     $pdo->prepare(
-                        "INSERT INTO kullanicilar (ad_soyad, kullanici_adi, sifre, rol) VALUES (?, ?, ?, 'admin')"
+                        "INSERT INTO users (full_name, username, password, role) VALUES (?, ?, ?, 'admin')"
                     )->execute([$ad_soyad, $k_adi, password_hash($sifre, PASSWORD_DEFAULT)]);
                 }
 
@@ -132,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['adim3']) || isset($_
                         $ilk_versiyon = $vm[1];
                     }
                 }
-                $pdo->prepare("INSERT IGNORE INTO sistem_migrations (versiyon) VALUES (?)")->execute([$ilk_versiyon]);
+                $pdo->prepare("INSERT IGNORE INTO migrations (version) VALUES (?)")->execute([$ilk_versiyon]);
 
                 $env = "DB_HOST={$_SESSION['db_host']}\n"
                      . "DB_NAME={$_SESSION['db_name']}\n"
@@ -206,7 +206,7 @@ if ($adim === 3) {
         );
         $tbl = $pdo_test->query("SHOW TABLES LIKE 'kullanicilar'")->fetch();
         if ($tbl) {
-            $say = $pdo_test->query("SELECT COUNT(*) FROM kullanicilar WHERE rol = 'admin'")->fetchColumn();
+            $say = $pdo_test->query("SELECT COUNT(*) FROM users WHERE role = 'admin'")->fetchColumn();
             if ($say > 0) $admin_var_mi = true;
         }
     } catch (Exception $e) {}

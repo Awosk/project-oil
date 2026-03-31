@@ -24,8 +24,8 @@ function logYaz($pdo, $aksiyon, $modul, $aciklama, $kayit_id = null, $eski = nul
 
     try {
         $stmt = $pdo->prepare("
-            INSERT INTO sistem_loglari
-                (kullanici_id, kullanici_adi, ad_soyad, sistem, aksiyon, modul, kayit_id, aciklama, eski_deger, yeni_deger, ip_adresi)
+            INSERT INTO system_logs
+                (user_id, username, full_name, system, action, module, record_id, description, old_value, new_value, ip_address)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
@@ -68,9 +68,9 @@ function logGiris($pdo, $kullanici, $sistem = 'ana') {
     $ip = trim(explode(',', $ip)[0]);
     try {
         $pdo->prepare("
-            INSERT INTO sistem_loglari (kullanici_id, kullanici_adi, ad_soyad, sistem, aksiyon, modul, aciklama, ip_adresi)
+            INSERT INTO system_logs (user_id, username, full_name, system, action, module, description, ip_address)
             VALUES (?, ?, ?, ?, 'giris', 'auth', 'Sisteme giriş yapıldı', ?)
-        ")->execute([$kullanici['id'], $kullanici['kullanici_adi'], $kullanici['ad_soyad'], $sistem, $ip]);
+        ")->execute([$kullanici['id'], $kullanici['username'], $kullanici['full_name'], $sistem, $ip]);
     } catch (Exception $e) { error_log('Log hatası: ' . $e->getMessage()); }
 
     // Admin bildirimlerini tetikle (GİRİŞ)
@@ -95,7 +95,7 @@ function logCikis($pdo, $sistem = 'ana') {
     $ip = trim(explode(',', $ip)[0]);
     try {
         $pdo->prepare("
-            INSERT INTO sistem_loglari (kullanici_id, kullanici_adi, ad_soyad, sistem, aksiyon, modul, aciklama, ip_adresi)
+            INSERT INTO system_logs (user_id, username, full_name, system, action, module, description, ip_address)
             VALUES (?, ?, ?, ?, 'cikis', 'auth', 'Sistemden çıkış yapıldı', ?)
         ")->execute([$ku['id'], $ku['adi'], $ku['ad_soyad'], $sistem, $ip]);
     } catch (Exception $e) { error_log('Log hatası: ' . $e->getMessage()); }

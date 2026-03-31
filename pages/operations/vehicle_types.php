@@ -23,18 +23,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     $tur_adi  = trim($_POST['tur_adi']);
     $oncelik  = max(1, (int)($_POST['oncelik'] ?? 1));
     if ($tur_adi) {
-        $mevcut = $pdo->prepare("SELECT * FROM lite_arac_turleri WHERE tur_adi = ?");
+        $mevcut = $pdo->prepare("SELECT * FROM vehicle_types WHERE type_name = ?");
         $mevcut->execute([$tur_adi]); $mevcut = $mevcut->fetch();
-        if ($mevcut && $mevcut['aktif'] == 0) {
-            $pdo->prepare("UPDATE lite_arac_turleri SET aktif=1, oncelik=? WHERE id=?")->execute([$oncelik, $mevcut['id']]);
-            logYaz($pdo,'ekle','arac_tur','Silinen araç türü reaktif edildi: '.$tur_adi, $mevcut['id'], null, ['tur_adi'=>$tur_adi,'oncelik'=>$oncelik], 'lite');
+        if ($mevcut && $mevcut['is_active'] == 0) {
+            $pdo->prepare("UPDATE vehicle_types SET is_active=1, priority=? WHERE id=?")->execute([$oncelik, $mevcut['id']]);
+            logYaz($pdo,'ekle','arac_tur','Silinen araç türü reaktif edildi: '.$tur_adi, $mevcut['id'], null, ['type_name'=>$tur_adi,'priority'=>$oncelik], 'lite');
             flash('Daha önce silinmiş araç türü tekrar aktif edildi.');
         } elseif ($mevcut && $mevcut['aktif'] == 1) {
             flash('Bu araç türü zaten kayıtlı.', 'danger');
         } else {
-            $pdo->prepare("INSERT INTO lite_arac_turleri (tur_adi, oncelik) VALUES (?, ?)")->execute([$tur_adi, $oncelik]);
+            $pdo->prepare("INSERT INTO vehicle_types (type_name, priority) VALUES (?, ?)")->execute([$tur_adi, $oncelik]);
             $yeni_id = $pdo->lastInsertId();
-            logYaz($pdo,'ekle','arac_tur','Araç türü eklendi: '.$tur_adi.' (öncelik:'.$oncelik.')', $yeni_id, null, ['tur_adi'=>$tur_adi,'oncelik'=>$oncelik], 'lite');
+            logYaz($pdo,'ekle','arac_tur','Araç türü eklendi: '.$tur_adi.' (öncelik:'.$oncelik.')', $yeni_id, null, ['type_name'=>$tur_adi,'priority'=>$oncelik], 'lite');
             flash('Araç türü eklendi.');
         }
     } else {
@@ -50,17 +50,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
     $tur_adi = trim($_POST['duzenle_tur_adi']);
     $oncelik = max(1, (int)($_POST['duzenle_oncelik'] ?? 1));
     if ($did && $tur_adi) {
-        $sr = $pdo->prepare('SELECT * FROM lite_arac_turleri WHERE id=?');
+        $sr = $pdo->prepare('SELECT * FROM vehicle_types WHERE id=?');
         $sr->execute([$did]); $sr = $sr->fetch();
-        $cakisma = $pdo->prepare("SELECT id FROM lite_arac_turleri WHERE tur_adi=? AND id!=? AND aktif=1");
+        $cakisma = $pdo->prepare("SELECT id FROM vehicle_types WHERE type_name=? AND id!=? AND is_active=1");
         $cakisma->execute([$tur_adi, $did]);
         if ($cakisma->fetch()) {
             flash('Bu araç türü adı zaten kullanımda.', 'danger');
         } else {
-            $pdo->prepare("UPDATE lite_arac_turleri SET tur_adi=?, oncelik=? WHERE id=?")->execute([$tur_adi, $oncelik, $did]);
+            $pdo->prepare("UPDATE vehicle_types SET type_name=?, priority=? WHERE id=?")->execute([$tur_adi, $oncelik, $did]);
             logYaz($pdo,'guncelle','arac_tur','Araç türü güncellendi: '.$tur_adi.' (öncelik:'.$oncelik.')', $did,
-                ['tur_adi' => $sr['tur_adi'], 'oncelik' => $sr['oncelik']],
-                ['tur_adi' => $tur_adi, 'oncelik' => $oncelik], 'lite');
+                ['type_name' => $sr['type_name'], 'priority' => $sr['priority']],
+                ['type_name' => $tur_adi, 'priority' => $oncelik], 'lite');
             flash('Araç türü güncellendi.');
         }
     } else {
@@ -72,15 +72,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
 // ── SİL ──
 if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
-    $kullanimda = $pdo->prepare("SELECT COUNT(*) FROM lite_araclar WHERE arac_turu_id=? AND aktif=1");
+    $kullanimda = $pdo->prepare("SELECT COUNT(*) FROM vehicles WHERE vehicle_type_id=? AND is_active=1");
     $kullanimda->execute([$sil_id]);
     if ((int)$kullanimda->fetchColumn() > 0) {
         flash('Bu araç türü aktif araçlarda kullanılıyor, silinemez.', 'danger');
     } else {
-        $sr = $pdo->prepare('SELECT * FROM lite_arac_turleri WHERE id=?');
+        $sr = $pdo->prepare('SELECT * FROM vehicle_types WHERE id=?');
         $sr->execute([$sil_id]); $sr = $sr->fetch();
-        $pdo->prepare("UPDATE lite_arac_turleri SET aktif=0 WHERE id=?")->execute([$sil_id]);
-        if ($sr) logYaz($pdo,'sil','arac_tur','Araç türü silindi: '.$sr['tur_adi'], $sil_id, $sr, null, 'lite');
+        $pdo->prepare("UPDATE vehicle_types SET is_active=0 WHERE id=?")->execute([$sil_id]);
+        if ($sr) logYaz($pdo,'sil','arac_tur','Araç türü silindi: '.$sr['type_name'], $sil_id, $sr, null, 'lite');
         flash('Araç türü silindi.');
     }
     header('Location: vehicle_types.php'); exit;
@@ -88,11 +88,11 @@ if (isset($_GET['sil'])) {
 
 $turler = $pdo->query("
     SELECT t.*, COUNT(a.id) AS arac_sayisi
-    FROM lite_arac_turleri t
-    LEFT JOIN lite_araclar a ON a.arac_turu_id = t.id AND a.aktif = 1
-    WHERE t.aktif = 1
+    FROM vehicle_types t
+    LEFT JOIN vehicles a ON a.vehicle_type_id = t.id AND a.is_active = 1
+    WHERE t.is_active = 1
     GROUP BY t.id
-    ORDER BY t.oncelik DESC, t.tur_adi
+    ORDER BY t.priority DESC, t.type_name
 ")->fetchAll();
 
 require_once __DIR__ . '/../../includes/header.php';
@@ -142,10 +142,10 @@ require_once __DIR__ . '/../../includes/header.php';
             <tr>
                 <td>
                     <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;font-weight:700;">
-                        <?= (int)$t['oncelik'] ?>
+                        <?= (int)$t['priority'] ?>
                     </span>
                 </td>
-                <td><strong><?= htmlspecialchars($t['tur_adi']) ?></strong></td>
+                <td><strong><?= htmlspecialchars($t['type_name']) ?></strong></td>
                 <td>
                     <?php if ($t['arac_sayisi'] > 0): ?>
                     <span class="badge badge-info"><?= $t['arac_sayisi'] ?> araç</span>
@@ -155,7 +155,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </td>
                 <td style="display:flex;gap:6px;flex-wrap:wrap;">
                     <button class="btn btn-sm btn-secondary"
-                        onclick="turDuzenleModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['tur_adi'], ENT_QUOTES) ?>', <?= (int)$t['oncelik'] ?>)">
+                        onclick="turDuzenleModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['type_name'], ENT_QUOTES) ?>', <?= (int)$t['priority'] ?>)">
                         ✏️ Düzenle
                     </button>
                     <?php if ($t['arac_sayisi'] == 0): ?>

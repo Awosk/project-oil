@@ -45,17 +45,17 @@ switch ($f_donem) {
 }
 
 // ── SORGU ──
-$where  = ["lk.aktif = 1", "lk.tarih BETWEEN ? AND ?"];
+$where  = ["lk.is_active = 1", "lk.date BETWEEN ? AND ?"];
 $params = [$tarih_bas, $tarih_bit];
 
-if ($f_tur === 'arac')  { $where[] = "lk.kayit_turu = 'arac'"; }
-elseif ($f_tur === 'tesis') { $where[] = "lk.kayit_turu = 'tesis'"; }
+if ($f_tur === 'arac')  { $where[] = "lk.record_type = 'arac'"; }
+elseif ($f_tur === 'tesis') { $where[] = "lk.record_type = 'tesis'"; }
 
-if ($f_kullanici) { $where[] = "lk.olusturan_id = ?"; $params[] = $f_kullanici; }
+if ($f_kullanici) { $where[] = "lk.created_by = ?"; $params[] = $f_kullanici; }
 
 if (!empty($f_urun_ids)) {
     $placeholders = implode(',', array_fill(0, count($f_urun_ids), '?'));
-    $where[]  = "lk.urun_id IN ($placeholders)";
+    $where[]  = "lk.product_id IN ($placeholders)";
     $params   = array_merge($params, $f_urun_ids);
 }
 
@@ -63,12 +63,12 @@ $where_sql = implode(" AND ", $where);
 
 // ── ÖZET: Ürün bazlı toplam (sayfalama olmadan, tüm kayıtlar için) ──
 $ozet_stmt = $pdo->prepare("
-    SELECT lk.urun_id, u.urun_kodu, u.urun_adi,
-           COUNT(*) AS adet, COALESCE(SUM(lk.miktar), 0) AS toplam
-    FROM lite_kayitlar lk
-    JOIN lite_urunler u ON lk.urun_id = u.id
+    SELECT lk.product_id, u.product_code AS urun_kodu, u.product_name AS urun_adi,
+           COUNT(*) AS adet, COALESCE(SUM(lk.quantity), 0) AS toplam
+    FROM oil_records lk
+    JOIN products u ON lk.product_id = u.id
     WHERE $where_sql
-    GROUP BY lk.urun_id, u.urun_kodu, u.urun_adi
+    GROUP BY lk.product_id, u.product_code, u.product_name
     ORDER BY toplam DESC
 ");
 $ozet_stmt->execute($params);
@@ -83,7 +83,7 @@ $sayfa_basina = 100;
 $sayfa        = max(1, (int)($_GET['sayfa'] ?? 1));
 
 // Toplam kayıt sayısı
-$count_stmt = $pdo->prepare("SELECT COUNT(*) FROM lite_kayitlar lk WHERE $where_sql");
+$count_stmt = $pdo->prepare("SELECT COUNT(*) FROM oil_records lk WHERE $where_sql");
 $count_stmt->execute($params);
 $toplam_kayit = (int)$count_stmt->fetchColumn();
 
@@ -94,30 +94,32 @@ $offset       = ($sayfa - 1) * $sayfa_basina;
 // PDF modunda tüm kayıtları çek (sayfalama yok)
 if ($pdf_mod) {
     $kayitlar_stmt = $pdo->prepare("
-        SELECT lk.*, u.urun_adi, u.urun_kodu, a.plaka, a.marka_model, at.tur_adi AS arac_turu,
-           t.firma_adi, k.ad_soyad
-        FROM lite_kayitlar lk
-        JOIN lite_urunler u  ON lk.urun_id    = u.id
-        LEFT JOIN lite_araclar  a  ON lk.arac_id    = a.id
-        LEFT JOIN lite_arac_turleri at ON a.arac_turu_id = at.id
-        LEFT JOIN lite_tesisler t  ON lk.tesis_id   = t.id
-        LEFT JOIN kullanicilar  k  ON lk.olusturan_id = k.id
+        SELECT lk.*, u.product_name AS urun_adi, u.product_code AS urun_kodu,
+               a.plate AS plaka, a.brand_model AS marka_model, vt.type_name AS arac_turu,
+               t.name AS firma_adi, k.full_name AS ad_soyad
+        FROM oil_records lk
+        JOIN products u         ON lk.product_id  = u.id
+        LEFT JOIN vehicles a    ON lk.vehicle_id   = a.id
+        LEFT JOIN vehicle_types vt ON a.vehicle_type_id = vt.id
+        LEFT JOIN facilities t  ON lk.facility_id  = t.id
+        LEFT JOIN users k       ON lk.created_by   = k.id
         WHERE $where_sql
-        ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
+        ORDER BY lk.date DESC, lk.created_at DESC
     ");
     $kayitlar_stmt->execute($params);
 } else {
     $kayitlar_stmt = $pdo->prepare("
-        SELECT lk.*, u.urun_adi, u.urun_kodu, a.plaka, a.marka_model, at.tur_adi AS arac_turu,
-           t.firma_adi, k.ad_soyad
-        FROM lite_kayitlar lk
-        JOIN lite_urunler u  ON lk.urun_id    = u.id
-        LEFT JOIN lite_araclar  a  ON lk.arac_id    = a.id
-        LEFT JOIN lite_arac_turleri at ON a.arac_turu_id = at.id
-        LEFT JOIN lite_tesisler t  ON lk.tesis_id   = t.id
-        LEFT JOIN kullanicilar  k  ON lk.olusturan_id = k.id
+        SELECT lk.*, u.product_name AS urun_adi, u.product_code AS urun_kodu,
+               a.plate AS plaka, a.brand_model AS marka_model, vt.type_name AS arac_turu,
+               t.name AS firma_adi, k.full_name AS ad_soyad
+        FROM oil_records lk
+        JOIN products u         ON lk.product_id  = u.id
+        LEFT JOIN vehicles a    ON lk.vehicle_id   = a.id
+        LEFT JOIN vehicle_types vt ON a.vehicle_type_id = vt.id
+        LEFT JOIN facilities t  ON lk.facility_id  = t.id
+        LEFT JOIN users k       ON lk.created_by   = k.id
         WHERE $where_sql
-        ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
+        ORDER BY lk.date DESC, lk.created_at DESC
         LIMIT $sayfa_basina OFFSET $offset
     ");
     $kayitlar_stmt->execute($params);
@@ -125,8 +127,8 @@ if ($pdf_mod) {
 $kayitlar = $kayitlar_stmt->fetchAll();
 
 // ── Filtre listeleri ──
-$tum_urunler      = $pdo->query("SELECT id, urun_kodu, urun_adi FROM lite_urunler WHERE aktif=1 ORDER BY urun_adi")->fetchAll();
-$tum_kullanicilar = $pdo->query("SELECT id, ad_soyad FROM kullanicilar WHERE aktif=1 ORDER BY ad_soyad")->fetchAll();
+$tum_urunler      = $pdo->query("SELECT id, product_code AS urun_kodu, product_name AS urun_adi FROM products WHERE is_active=1 ORDER BY product_name")->fetchAll();
+$tum_kullanicilar = $pdo->query("SELECT id, full_name AS ad_soyad FROM users WHERE is_active=1 ORDER BY full_name")->fetchAll();
 
 if ($pdf_mod) { ob_start(); }
 if (!$pdf_mod) require_once __DIR__ . '/../../includes/header.php';
@@ -207,7 +209,7 @@ if (!$pdf_mod) require_once __DIR__ . '/../../includes/header.php';
                     <input type="checkbox" name="urun_ids[]" value="<?= $u['id'] ?>"
                            <?= in_array($u['id'], $f_urun_ids) ? 'checked' : '' ?>
                            style="display:none;" onchange="this.closest('label').style.background=this.checked?'var(--primary)':''; this.closest('label').style.color=this.checked?'#fff':''; this.closest('label').style.borderColor=this.checked?'var(--primary)':'var(--border)';">
-                    <?= htmlspecialchars($u['urun_kodu']) ?>
+                    <?= htmlspecialchars($u['product_code']) ?>
                 </label>
                 <?php endforeach; ?>
             </div>
@@ -227,7 +229,7 @@ $tur_etiket   = ['arac'=>'Araçlar','tesis'=>'Tesisler','tumu'=>'Tümü'][$f_tur
 $secili_urun_adlari = [];
 if (!empty($f_urun_ids)) {
     foreach ($tum_urunler as $u) {
-        if (in_array($u['id'], $f_urun_ids)) $secili_urun_adlari[] = $u['urun_kodu'];
+        if (in_array($u['id'], $f_urun_ids)) $secili_urun_adlari[] = $u['product_code'];
     }
 }
 ?>
@@ -276,7 +278,7 @@ if (!empty($f_urun_ids)) {
     <thead><tr><th>Ürün Kodu</th><th>Ürün Adı</th><th>İşlem Sayısı</th><th>Toplam (L)</th></tr></thead>
     <tbody>
     <?php foreach ($urun_ozet as $o): ?>
-    <tr><td><?= htmlspecialchars($o['urun_kodu']) ?></td><td><?= htmlspecialchars($o['urun_adi']) ?></td><td><?= $o['adet'] ?></td><td><?= number_format($o['toplam'], 2, ',', '.') ?></td></tr>
+    <tr><td><?= htmlspecialchars($o['product_code']) ?></td><td><?= htmlspecialchars($o['product_name']) ?></td><td><?= $o['adet'] ?></td><td><?= number_format($o['toplam'], 2, ',', '.') ?></td></tr>
     <?php endforeach; ?>
     <tr class="toplam-row"><td colspan="2"><strong>GENEL TOPLAM</strong></td><td><strong><?= $genel_adet ?></strong></td><td><strong><?= number_format($genel_toplam, 2, ',', '.') ?> L</strong></td></tr>
     </tbody>
@@ -290,8 +292,8 @@ if (!empty($f_urun_ids)) {
             <tbody>
             <?php foreach ($urun_ozet as $o): ?>
             <tr>
-                <td><code><?= htmlspecialchars($o['urun_kodu']) ?></code></td>
-                <td><?= htmlspecialchars($o['urun_adi']) ?></td>
+                <td><code><?= htmlspecialchars($o['product_code']) ?></code></td>
+                <td><?= htmlspecialchars($o['product_name']) ?></td>
                 <td><?= $o['adet'] ?></td>
                 <td><strong><?= number_format($o['toplam'], 2, ',', '.') ?> L</strong></td>
             </tr>
@@ -315,13 +317,13 @@ if (!empty($f_urun_ids)) {
     <tbody>
     <?php foreach ($kayitlar as $r): ?>
     <tr>
-        <td><?= date('d.m.Y', strtotime($r['tarih'])) ?></td>
-        <td><?= $r['kayit_turu'] === 'arac' ? 'Araç' : 'Tesis' ?></td>
-        <td><?= $r['kayit_turu'] === 'arac' ? htmlspecialchars($r['plaka']).'<br><small>'.htmlspecialchars($r['marka_model']).'</small>' : htmlspecialchars($r['firma_adi']) ?></td>
-        <td><?= htmlspecialchars($r['urun_kodu']) ?><br><small><?= htmlspecialchars($r['urun_adi']) ?></small></td>
-        <td><?= number_format($r['miktar'], 2, ',', '.') ?></td>
+        <td><?= date('d.m.Y', strtotime($r['date'])) ?></td>
+        <td><?= $r['record_type'] === 'arac' ? 'Araç' : 'Tesis' ?></td>
+        <td><?= $r['record_type'] === 'arac' ? htmlspecialchars($r['plate']).'<br><small>'.htmlspecialchars($r['brand_model']).'</small>' : htmlspecialchars($r['name']) ?></td>
+        <td><?= htmlspecialchars($r['product_code']) ?><br><small><?= htmlspecialchars($r['product_name']) ?></small></td>
+        <td><?= number_format($r['quantity'], 2, ',', '.') ?></td>
         <td><?= htmlspecialchars($r['ad_soyad'] ?? '-') ?></td>
-        <td><?= $r['aciklama'] ? htmlspecialchars($r['aciklama']) : '—' ?><?php if ($r['yag_bakimi']): ?><br><strong>🔧 YAĞ BAKIMI<?= $r['mevcut_km'] ? ' — '.number_format($r['mevcut_km']).' KM' : '' ?></strong><?php endif; ?></td>
+        <td><?= $r['notes'] ? htmlspecialchars($r['notes']) : '—' ?><?php if ($r['is_oil_change']): ?><br><strong>🔧 YAĞ BAKIMI<?= $r['current_km'] ? ' — '.number_format($r['current_km']).' KM' : '' ?></strong><?php endif; ?></td>
     </tr>
     <?php endforeach; ?>
     </tbody>
@@ -342,15 +344,15 @@ if (!empty($f_urun_ids)) {
             <tbody>
             <?php foreach ($kayitlar as $r): ?>
             <tr>
-                <td><?= date('d.m.Y', strtotime($r['tarih'])) ?></td>
-                <td><?= $r['kayit_turu']==='arac' ? '<span class="badge badge-info">🚗 Araç</span>' : '<span class="badge badge-success">🏭 Tesis</span>' ?></td>
-                <td><?php if ($r['kayit_turu']==='arac'): ?><strong><?= htmlspecialchars($r['plaka']) ?></strong><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['marka_model']) ?></span><?php else: ?><strong><?= htmlspecialchars($r['firma_adi']) ?></strong><?php endif; ?></td>
-                <td><code><?= htmlspecialchars($r['urun_kodu']) ?></code><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['urun_adi']) ?></span></td>
-                <td><strong><?= number_format($r['miktar'], 2, ',', '.') ?> L</strong></td>
+                <td><?= date('d.m.Y', strtotime($r['date'])) ?></td>
+                <td><?= $r['record_type']==='arac' ? '<span class="badge badge-info">🚗 Araç</span>' : '<span class="badge badge-success">🏭 Tesis</span>' ?></td>
+                <td><?php if ($r['record_type']==='arac'): ?><strong><?= htmlspecialchars($r['plate']) ?></strong><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['brand_model']) ?></span><?php else: ?><strong><?= htmlspecialchars($r['name']) ?></strong><?php endif; ?></td>
+                <td><code><?= htmlspecialchars($r['product_code']) ?></code><br><span style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($r['product_name']) ?></span></td>
+                <td><strong><?= number_format($r['quantity'], 2, ',', '.') ?> L</strong></td>
                 <td><?= htmlspecialchars($r['ad_soyad'] ?? '-') ?></td>
                 <td style="font-size:12px;color:var(--muted);">
-                    <?= $r['aciklama'] ? htmlspecialchars($r['aciklama']) : '—' ?>
-                    <?php if ($r['yag_bakimi']): ?><br><span style="font-size:11px;font-weight:700;color:var(--warning);">🔧 YAĞ BAKIMI<?= $r['mevcut_km'] ? ' — '.number_format($r['mevcut_km']).' KM' : '' ?></span><?php endif; ?>
+                    <?= $r['notes'] ? htmlspecialchars($r['notes']) : '—' ?>
+                    <?php if ($r['is_oil_change']): ?><br><span style="font-size:11px;font-weight:700;color:var(--warning);">🔧 YAĞ BAKIMI<?= $r['current_km'] ? ' — '.number_format($r['current_km']).' KM' : '' ?></span><?php endif; ?>
                 </td>
             </tr>
             <?php endforeach; ?>

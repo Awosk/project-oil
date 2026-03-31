@@ -29,17 +29,17 @@ define('KORUNANLAR', [
 
 // ── Migration tablosu yoksa oluştur ──
 try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS `sistem_migrations` (
-        `versiyon` varchar(20) NOT NULL,
-        `uygulandi_tarih` datetime NOT NULL DEFAULT current_timestamp(),
-        PRIMARY KEY (`versiyon`)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `migrations` (
+        `version` varchar(20) NOT NULL,
+        `applied_at` datetime NOT NULL DEFAULT current_timestamp(),
+        PRIMARY KEY (`version`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci");
 } catch (Exception $e) {}
 
 // ── Uygulanan migrationları çek ──
 function uygulanmisVersiyon($pdo): array {
     try {
-        return $pdo->query("SELECT versiyon FROM sistem_migrations ORDER BY versiyon")
+        return $pdo->query("SELECT version FROM migrations ORDER BY version")
                    ->fetchAll(PDO::FETCH_COLUMN);
     } catch (Exception $e) { return []; }
 }
@@ -264,7 +264,7 @@ if (isset($_GET['guncelle']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 // Migration kaydını ekle
-                $pdo->prepare("INSERT IGNORE INTO sistem_migrations (versiyon) VALUES (?)")->execute([$versiyon]);
+                $pdo->prepare("INSERT IGNORE INTO migrations (version) VALUES (?)")->execute([$versiyon]);
                 $log[] = "✓ Migration $versiyon tamamlandı";
                 $migration_yapildi++;
             } catch (Exception $me) {

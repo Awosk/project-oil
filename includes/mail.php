@@ -26,10 +26,10 @@ require_once __DIR__ . '/phpmailer/Exception.php';
 
 function smtpAyarlariGetir($pdo): array {
     try {
-        $rows = $pdo->query("SELECT anahtar, deger FROM sistem_ayarlar WHERE anahtar LIKE 'smtp_%'")->fetchAll();
+        $rows = $pdo->query("SELECT `key`, `value` FROM system_settings WHERE `key` LIKE 'smtp_%'")->fetchAll();
         $ayarlar = [];
         foreach ($rows as $row) {
-            $ayarlar[$row['anahtar']] = $row['deger'];
+            $ayarlar[$row['key']] = $row['value'];
         }
         return $ayarlar;
     } catch (Exception $e) {
@@ -39,7 +39,7 @@ function smtpAyarlariGetir($pdo): array {
 
 function sistemAyarGetir($pdo, string $anahtar, string $varsayilan = ''): string {
     try {
-        $stmt = $pdo->prepare("SELECT deger FROM sistem_ayarlar WHERE anahtar = ?");
+        $stmt = $pdo->prepare("SELECT `value` FROM system_settings WHERE `key` = ?");
         $stmt->execute([$anahtar]);
         $deger = $stmt->fetchColumn();
         return $deger !== false ? (string)$deger : $varsayilan;
@@ -80,6 +80,7 @@ function mailQueueEkle($pdo, string $to_email, string $to_name, string $subject,
             INSERT INTO mail_queue (to_email, to_name, subject, body, status)
             VALUES (?, ?, ?, ?, ?)
         ")->execute([$to_email, $to_name, $subject, $body, $status]);
+        // mail_queue tablosu zaten İngilizce, sadece hata_mesaji→error_message değişti
         return true;
     } catch (Exception $e) {
         error_log('mailQueueEkle hatası: ' . $e->getMessage());
@@ -138,15 +139,15 @@ function adminBildirimGonder($pdo, string $aksiyon, string $modul, string $acikl
 
     try {
         $stmt = $pdo->prepare("
-            SELECT k.email, k.ad_soyad
-            FROM admin_bildirim_filtreler f
-            JOIN kullanicilar k ON f.kullanici_id = k.id
-            WHERE f.aktif = 1
-            AND f.modul = ?
-            AND f.aksiyon = ?
-            AND k.aktif = 1
-            AND k.rol = 'admin' -- CRITICAL FIX: Sadece rolü hala admin olanlara gönder!
-            AND k.mail_bildirim_aktif = 1
+            SELECT k.email, k.full_name AS ad_soyad
+            FROM notification_filters f
+            JOIN users k ON f.user_id = k.id
+            WHERE f.is_active = 1
+            AND f.module = ?
+            AND f.action = ?
+            AND k.is_active = 1
+            AND k.role = 'admin'
+            AND k.mail_notifications = 1
             AND k.email IS NOT NULL
             AND k.email != ''
         ");
@@ -175,14 +176,15 @@ function adminBildirimGonder($pdo, string $aksiyon, string $modul, string $acikl
             WHERE created_at >= ?
             AND status IN ('pending', 'sent', 'failed', 'force')
         ");
+        // mail_queue.created_at zaten İngilizce
         $stmt2->execute([$pencere_bas]);
         $son_mail_sayisi = (int)$stmt2->fetchColumn();
 
         if ($son_mail_sayisi >= $limit_adet) {
             $cooldown_bitis = date('Y-m-d H:i:s', time() + ($cooldown_dk * 60));
             $pdo->prepare("
-                INSERT INTO sistem_ayarlar (anahtar, deger) VALUES ('mail_cooldown_bitis', ?)
-                ON DUPLICATE KEY UPDATE deger = VALUES(deger)
+                INSERT INTO system_settings (`key`, `value`) VALUES ('mail_cooldown_bitis', ?)
+                ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)
             ")->execute([$cooldown_bitis]);
 
             $pdo->exec("UPDATE mail_queue SET status = 'paused' WHERE status = 'pending'");

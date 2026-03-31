@@ -112,11 +112,11 @@ function aktifKullaniciKontrol($pdo): void {
 
     $_SESSION['aktif_kontrol_zaman'] = time();
 
-    $stmt = $pdo->prepare("SELECT aktif FROM kullanicilar WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT is_active FROM users WHERE id = ?");
     $stmt->execute([$_SESSION['kullanici_id']]);
     $sonuc = $stmt->fetchColumn();
 
-    if ($sonuc === false || (int)$sonuc === 0) {
+    if ($sonuc === false || (int)$sonuc !== 1) {
         // Kullanıcı silinmiş veya pasife alınmış
         session_destroy();
         session_start();

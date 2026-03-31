@@ -39,20 +39,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sifre = $_POST['sifre'] ?? '';
 
         if ($kadi && $sifre) {
-            $stmt = $pdo->prepare("SELECT * FROM kullanicilar WHERE kullanici_adi=? AND aktif=1");
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE username=? AND is_active=1");
             $stmt->execute([$kadi]);
             $k = $stmt->fetch();
 
-            if ($k && password_verify($sifre, $k['sifre'])) {
+            if ($k && password_verify($sifre, $k['password'])) {
                 // Başarılı giriş — sayacı sıfırla, session güvenli yenile
                 bfSifirla($ip);
                 session_regenerate_id(true);
 
                 $_SESSION['kullanici_id']   = $k['id'];
-                $_SESSION['kullanici_adi']  = $k['kullanici_adi'];
-                $_SESSION['ad_soyad']       = $k['ad_soyad'];
-                $_SESSION['kullanici_rol']  = $k['rol'];
-                $_SESSION['kullanici_tema'] = $k['tema'] ?? 'light';
+                $_SESSION['kullanici_adi']  = $k['username'];
+                $_SESSION['ad_soyad']       = $k['full_name'];
+                $_SESSION['kullanici_rol']  = $k['role'];
+                $_SESSION['kullanici_tema'] = $k['theme'] ?? 'light';
                 $_SESSION['son_aktivite']   = time();
                 $_SESSION['aktif_kontrol_zaman'] = time(); // İlk kontrolü şimdi yaptı say
 

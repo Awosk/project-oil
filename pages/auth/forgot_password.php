@@ -30,20 +30,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mesaj     = 'E-posta servisi aktif değil. Lütfen yöneticinizle iletişime geçin.';
         $mesaj_tur = 'danger';
     } else {
-        $kullanici = $pdo->prepare("SELECT * FROM kullanicilar WHERE email = ? AND aktif = 1");
+        $kullanici = $pdo->prepare("SELECT * FROM users WHERE email = ? AND is_active = 1");
         $kullanici->execute([$email]);
         $kullanici = $kullanici->fetch();
 
         // Güvenlik: kullanıcı bulunsun ya da bulunmasın aynı mesajı göster
         if ($kullanici) {
             // Eski tokenları iptal et
-            $pdo->prepare("UPDATE sifre_sifirlama SET kullanildi = 1 WHERE kullanici_id = ? AND kullanildi = 0")
+            $pdo->prepare("UPDATE password_resets SET is_used = 1 WHERE user_id = ? AND is_used = 0")
                 ->execute([$kullanici['id']]);
 
             $token       = bin2hex(random_bytes(32));
             $son_kullanma = date('Y-m-d H:i:s', strtotime('+30 minutes'));
 
-            $pdo->prepare("INSERT INTO sifre_sifirlama (kullanici_id, token, son_kullanma) VALUES (?, ?, ?)")
+            $pdo->prepare("INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)")
                 ->execute([$kullanici['id'], $token, $son_kullanma]);
 
             sifreSifirlamaMailiGonder($pdo, $kullanici, $token);

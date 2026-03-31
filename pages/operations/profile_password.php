@@ -30,14 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($yeni !== $tekrar) {
         flash('Yeni şifreler eşleşmiyor.', 'danger');
     } else {
-        $stmt = $pdo->prepare("SELECT sifre FROM kullanicilar WHERE id=? AND aktif=1");
+        $stmt = $pdo->prepare("SELECT password FROM users WHERE id=? AND is_active=1");
         $stmt->execute([$ku['id']]);
         $mevcut_hash = $stmt->fetchColumn();
 
         if (!$mevcut_hash || !password_verify($eski, $mevcut_hash)) {
             flash('Mevcut şifreniz hatalı.', 'danger');
         } else {
-            $pdo->prepare("UPDATE kullanicilar SET sifre=? WHERE id=?")
+            $pdo->prepare("UPDATE users SET password=? WHERE id=?")
                 ->execute([password_hash($yeni, PASSWORD_DEFAULT), $ku['id']]);
             logYaz($pdo, 'guncelle', 'kullanici', 'Kendi şifresini değiştirdi: ' . $ku['adi'], $ku['id'], null, null, 'lite');
             flash('Şifreniz başarıyla güncellendi.');

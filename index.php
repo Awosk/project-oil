@@ -27,26 +27,26 @@ $sayfa_basligi = 'Araçlar';
 
 $araclar = $pdo->query("
     SELECT a.*,
-           t.tur_adi,
-           t.oncelik,
-           k.ad_soyad AS olusturan_adi,
-           COUNT(CASE WHEN lk.aktif = 1 THEN 1 END) AS kayit_sayisi,
-           MAX(CASE WHEN lk.aktif = 1 THEN lk.tarih END) AS son_kayit
-    FROM lite_araclar a
-    LEFT JOIN lite_arac_turleri t  ON a.arac_turu_id = t.id
-    LEFT JOIN kullanicilar k       ON a.olusturan_id = k.id
-    LEFT JOIN lite_kayitlar lk     ON lk.arac_id = a.id
-    WHERE a.aktif = 1
+           t.type_name AS tur_adi,
+           t.priority AS oncelik,
+           k.full_name AS olusturan_adi,
+           COUNT(CASE WHEN lk.is_active = 1 THEN 1 END) AS kayit_sayisi,
+           MAX(CASE WHEN lk.is_active = 1 THEN lk.date END) AS son_kayit
+    FROM vehicles a
+    LEFT JOIN vehicle_types t  ON a.vehicle_type_id = t.id
+    LEFT JOIN users k          ON a.created_by = k.id
+    LEFT JOIN oil_records lk   ON lk.vehicle_id = a.id
+    WHERE a.is_active = 1
     GROUP BY a.id
-    ORDER BY t.oncelik DESC, t.tur_adi, a.plaka
+    ORDER BY t.priority DESC, t.type_name, a.plate
 ")->fetchAll();
 
 $arama = trim($_GET['q'] ?? '');
 if ($arama) {
     $araclar = array_filter($araclar, function($a) use ($arama) {
-        return stripos($a['plaka'], $arama) !== false
-            || stripos($a['marka_model'], $arama) !== false
-            || stripos($a['tur_adi'] ?? '', $arama) !== false;
+        return stripos($a['plate'], $arama) !== false
+            || stripos($a['brand_model'], $arama) !== false
+            || stripos($a['type_name'] ?? '', $arama) !== false;
     });
 }
 
@@ -73,10 +73,10 @@ require_once __DIR__ . '/includes/header.php';
 <div class="arac-grid">
     <?php foreach ($araclar as $a): ?>
     <a href="pages/operations/vehicle_detail.php?id=<?= $a['id'] ?>" class="arac-card">
-        <div class="arac-card-plaka"><?= htmlspecialchars($a['plaka']) ?></div>
-        <div class="arac-card-model"><?= htmlspecialchars($a['marka_model']) ?></div>
+        <div class="arac-card-plaka"><?= htmlspecialchars($a['plate']) ?></div>
+        <div class="arac-card-model"><?= htmlspecialchars($a['brand_model']) ?></div>
         <div class="arac-card-meta">
-            <span class="badge badge-info arac-card-tur"><?= htmlspecialchars($a['tur_adi'] ?? '—') ?></span>
+            <span class="badge badge-info arac-card-tur"><?= htmlspecialchars($a['type_name'] ?? '—') ?></span>
             <span class="arac-card-sayi">
                 <?php if ($a['kayit_sayisi'] > 0): ?>
                 📋 <?= $a['kayit_sayisi'] ?> kayıt

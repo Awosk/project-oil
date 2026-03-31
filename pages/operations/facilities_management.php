@@ -22,19 +22,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     $firma = trim($_POST['firma_adi']);
     $adres = trim($_POST['firma_adresi']);
     if ($firma && $adres) {
-        $mevcut = $pdo->prepare("SELECT * FROM lite_tesisler WHERE firma_adi=?");
+        $mevcut = $pdo->prepare("SELECT * FROM facilities WHERE name=?");
         $mevcut->execute([$firma]); $mevcut = $mevcut->fetch();
 
-        if ($mevcut && $mevcut['aktif'] == 0) {
-            $pdo->prepare("UPDATE lite_tesisler SET firma_adresi=?, olusturan_id=?, aktif=1 WHERE id=?")->execute([$adres, $ku['id'], $mevcut['id']]);
-            logYaz($pdo,'ekle','tesis','Silinen tesis reaktif edildi: '.$firma, $mevcut['id'], null, ['firma'=>$firma,'adres'=>$adres], 'lite');
+        if ($mevcut && $mevcut['is_active'] == 0) {
+            $pdo->prepare("UPDATE facilities SET address=?, created_by=?, is_active=1 WHERE id=?")->execute([$adres, $ku['id'], $mevcut['id']]);
+            logYaz($pdo,'ekle','tesis','Silinen tesis reaktif edildi: '.$firma, $mevcut['id'], null, ['name'=>$firma,'address'=>$adres], 'lite');
             flash('Daha önce silinmiş tesis tekrar aktif edildi.');
         } elseif ($mevcut && $mevcut['aktif'] == 1) {
             flash('Bu tesis adı zaten kayıtlı.', 'danger');
         } else {
-            $pdo->prepare("INSERT INTO lite_tesisler (firma_adi, firma_adresi, olusturan_id) VALUES (?,?,?)")->execute([$firma, $adres, $ku['id']]);
+            $pdo->prepare("INSERT INTO facilities (name, address, created_by) VALUES (?,?,?)")->execute([$firma, $adres, $ku['id']]);
             $yeni_id = $pdo->lastInsertId();
-            logYaz($pdo,'ekle','tesis','Tesis eklendi: '.$firma, $yeni_id, null, ['firma'=>$firma,'adres'=>$adres], 'lite');
+            logYaz($pdo,'ekle','tesis','Tesis eklendi: '.$firma, $yeni_id, null, ['name'=>$firma,'address'=>$adres], 'lite');
             flash('Tesis eklendi.');
         }
     } else { flash('Tüm alanlar zorunludur.', 'danger'); }
@@ -43,9 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
 
 if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
-    $sr = $pdo->prepare('SELECT * FROM lite_tesisler WHERE id=?'); $sr->execute([$sil_id]); $sr = $sr->fetch();
-    $pdo->prepare("UPDATE lite_tesisler SET aktif=0 WHERE id=?")->execute([$sil_id]);
-    if ($sr) logYaz($pdo,'sil','tesis','Tesis silindi: '.$sr['firma_adi'], $sil_id, $sr, null, 'lite');
+    $sr = $pdo->prepare('SELECT * FROM facilities WHERE id=?'); $sr->execute([$sil_id]); $sr = $sr->fetch();
+    $pdo->prepare("UPDATE facilities SET is_active=0 WHERE id=?")->execute([$sil_id]);
+    if ($sr) logYaz($pdo,'sil','tesis','Tesis silindi: '.$sr['name'], $sil_id, $sr, null, 'lite');
     flash('Tesis silindi.');
     header('Location: facilities_management.php'); exit;
 }
@@ -56,23 +56,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
     $firma = trim($_POST['duzenle_firma']);
     $adres = trim($_POST['duzenle_adres']);
     if ($did && $firma && $adres) {
-        $sr = $pdo->prepare('SELECT * FROM lite_tesisler WHERE id=?'); $sr->execute([$did]); $sr = $sr->fetch();
-        $cakisma = $pdo->prepare("SELECT id FROM lite_tesisler WHERE firma_adi=? AND id!=? AND aktif=1");
+        $sr = $pdo->prepare('SELECT * FROM facilities WHERE id=?'); $sr->execute([$did]); $sr = $sr->fetch();
+        $cakisma = $pdo->prepare("SELECT id FROM facilities WHERE name=? AND id!=? AND is_active=1");
         $cakisma->execute([$firma, $did]);
         if ($cakisma->fetch()) {
             flash('Bu tesis adı başka bir kayıtta kullanılıyor.', 'danger');
         } else {
-            $pdo->prepare("UPDATE lite_tesisler SET firma_adi=?, firma_adresi=? WHERE id=?")->execute([$firma, $adres, $did]);
+            $pdo->prepare("UPDATE facilities SET name=?, address=? WHERE id=?")->execute([$firma, $adres, $did]);
             logYaz($pdo,'guncelle','tesis','Tesis güncellendi: '.$firma, $did,
-                ['firma_adi'=>$sr['firma_adi'],'firma_adresi'=>$sr['firma_adresi']],
-                ['firma_adi'=>$firma,'firma_adresi'=>$adres], 'lite');
+                ['name'=>$sr['name'],'address'=>$sr['address']],
+                ['name'=>$firma,'address'=>$adres], 'lite');
             flash('Tesis güncellendi.');
         }
     } else { flash('Tüm alanlar zorunludur.', 'danger'); }
     header('Location: facilities_management.php'); exit;
 }
 
-$tesisler = $pdo->query("SELECT t.*, k.ad_soyad FROM lite_tesisler t LEFT JOIN kullanicilar k ON t.olusturan_id=k.id WHERE t.aktif=1 ORDER BY t.firma_adi")->fetchAll();
+$tesisler = $pdo->query("SELECT t.*, k.full_name AS ad_soyad FROM facilities t LEFT JOIN users k ON t.created_by=k.id WHERE t.is_active=1 ORDER BY t.name")->fetchAll();
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -113,12 +113,12 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php foreach ($tesisler as $i => $t): ?>
             <tr>
                 <td><?= $i+1 ?></td>
-                <td><strong><?= htmlspecialchars($t['firma_adi']) ?></strong></td>
-                <td><?= htmlspecialchars($t['firma_adresi']) ?></td>
+                <td><strong><?= htmlspecialchars($t['name']) ?></strong></td>
+                <td><?= htmlspecialchars($t['address']) ?></td>
                 <td style="display:flex;gap:6px;flex-wrap:wrap;">
                     <a href="facility_detail.php?id=<?= $t['id'] ?>" class="btn btn-sm btn-primary">👁️ Detay</a>
                     <button class="btn btn-sm btn-secondary"
-                        onclick="tesisDuzenleModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['firma_adi'], ENT_QUOTES) ?>', '<?= htmlspecialchars($t['firma_adresi'], ENT_QUOTES) ?>')">✏️ Düzenle</button>
+                        onclick="tesisDuzenleModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['name'], ENT_QUOTES) ?>', '<?= htmlspecialchars($t['address'], ENT_QUOTES) ?>')">✏️ Düzenle</button>
                     <a href="?sil=<?= $t['id'] ?>" class="btn btn-sm btn-danger" onclick="return confirm('Silmek istediğinize emin misiniz?')">🗑️</a>
                 </td>
             </tr>

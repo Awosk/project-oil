@@ -20,12 +20,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
     csrfDogrula();
     $kayit_id      = (int)$_POST['kayit_id'];
     $yeni_aciklama = trim($_POST['aciklama_yeni'] ?? '');
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,a.plaka,t.firma_adi FROM lite_kayitlar lk JOIN lite_urunler u ON lk.urun_id=u.id LEFT JOIN lite_araclar a ON lk.arac_id=a.id LEFT JOIN lite_tesisler t ON lk.tesis_id=t.id WHERE lk.id=? AND lk.aktif=1');
+    $sr = $pdo->prepare('SELECT lk.*,u.product_code AS urun_kodu,a.plate AS plaka,t.name AS firma_adi FROM oil_records lk JOIN products u ON lk.product_id=u.id LEFT JOIN vehicles a ON lk.vehicle_id=a.id LEFT JOIN facilities t ON lk.facility_id=t.id WHERE lk.id=? AND lk.is_active=1');
     $sr->execute([$kayit_id]); $sr = $sr->fetch();
     if ($sr) {
-        $pdo->prepare("UPDATE lite_kayitlar SET aciklama=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
+        $pdo->prepare("UPDATE oil_records SET notes=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
         $hedef = $sr['plaka'] ?? $sr['firma_adi'] ?? '?';
-        logYaz($pdo,'guncelle','arac_kayit', $hedef.' kaydına açıklama güncellendi: '.$sr['urun_kodu'], $kayit_id, ['aciklama'=>$sr['aciklama']], ['aciklama'=>$yeni_aciklama], 'lite');
+        logYaz($pdo,'guncelle','arac_kayit', $hedef.' kaydına açıklama güncellendi: '.$sr['urun_kodu'], $kayit_id, ['notes'=>$sr['notes']], ['notes'=>$yeni_aciklama], 'lite');
         flash('Açıklama güncellendi.');
     }
     $qs = $_GET;
@@ -34,25 +34,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
 
 if (isset($_GET['islendi_toggle'])) {
     $toggle_id = (int)$_GET['islendi_toggle'];
-    $mevcut = $pdo->prepare("SELECT islendi FROM lite_kayitlar WHERE id=?");
+    $mevcut = $pdo->prepare("SELECT is_processed FROM oil_records WHERE id=?");
     $mevcut->execute([$toggle_id]); $mevcut_val = $mevcut->fetchColumn();
     $ku = mevcutKullanici();
     if ($mevcut_val == 0) {
-        $pdo->prepare("UPDATE lite_kayitlar SET islendi=1, islendi_tarih=NOW(), islendi_kullanici_id=? WHERE id=?")
+        $pdo->prepare("UPDATE oil_records SET is_processed=1, processed_at=NOW(), processed_by=? WHERE id=?")
             ->execute([$ku['id'], $toggle_id]);
-        $kd = $pdo->prepare("SELECT lk.*, u.urun_kodu, u.urun_adi, a.plaka, t.firma_adi FROM lite_kayitlar lk JOIN lite_urunler u ON lk.urun_id=u.id LEFT JOIN lite_araclar a ON lk.arac_id=a.id LEFT JOIN lite_tesisler t ON lk.tesis_id=t.id WHERE lk.id=?");
+        $kd = $pdo->prepare("SELECT lk.*, u.product_code AS urun_kodu, u.product_name AS urun_adi, a.plate AS plaka, t.name AS firma_adi FROM oil_records lk JOIN products u ON lk.product_id=u.id LEFT JOIN vehicles a ON lk.vehicle_id=a.id LEFT JOIN facilities t ON lk.facility_id=t.id WHERE lk.id=?");
         $kd->execute([$toggle_id]); $kd = $kd->fetch();
         $hedef = $kd ? ($kd['plaka'] ?? $kd['firma_adi'] ?? '?') : '?';
         $urun  = $kd ? ($kd['urun_kodu'].' '.$kd['urun_adi']) : '?';
-        logYaz($pdo,'guncelle','islendi','Kayıt depoya işlendi: '.$hedef.' — '.$urun.', '.($kd['miktar']??'?').'L', $toggle_id, ['islendi'=>0], ['islendi'=>1,'islendi_kullanici_id'=>$ku['id']], 'lite');
+        logYaz($pdo,'guncelle','islendi','Kayıt depoya işlendi: '.$hedef.' — '.$urun.', '.($kd['quantity']??'?').'L', $toggle_id, ['is_processed'=>0], ['is_processed'=>1,'processed_by'=>$ku['id']], 'lite');
     } else {
-        $pdo->prepare("UPDATE lite_kayitlar SET islendi=0, islendi_tarih=NULL, islendi_kullanici_id=NULL WHERE id=?")
+        $pdo->prepare("UPDATE oil_records SET is_processed=0, processed_at=NULL, processed_by=NULL WHERE id=?")
             ->execute([$toggle_id]);
-        $kd = $pdo->prepare("SELECT lk.*, u.urun_kodu, u.urun_adi, a.plaka, t.firma_adi FROM lite_kayitlar lk JOIN lite_urunler u ON lk.urun_id=u.id LEFT JOIN lite_araclar a ON lk.arac_id=a.id LEFT JOIN lite_tesisler t ON lk.tesis_id=t.id WHERE lk.id=?");
+        $kd = $pdo->prepare("SELECT lk.*, u.product_code AS urun_kodu, u.product_name AS urun_adi, a.plate AS plaka, t.name AS firma_adi FROM oil_records lk JOIN products u ON lk.product_id=u.id LEFT JOIN vehicles a ON lk.vehicle_id=a.id LEFT JOIN facilities t ON lk.facility_id=t.id WHERE lk.id=?");
         $kd->execute([$toggle_id]); $kd = $kd->fetch();
         $hedef = $kd ? ($kd['plaka'] ?? $kd['firma_adi'] ?? '?') : '?';
         $urun  = $kd ? ($kd['urun_kodu'].' '.$kd['urun_adi']) : '?';
-        logYaz($pdo,'guncelle','islendi','İşlendi işareti geri alındı: '.$hedef.' — '.$urun.', '.($kd['miktar']??'?').'L', $toggle_id, ['islendi'=>1], ['islendi'=>0], 'lite');
+        logYaz($pdo,'guncelle','islendi','İşlendi işareti geri alındı: '.$hedef.' — '.$urun.', '.($kd['quantity']??'?').'L', $toggle_id, ['is_processed'=>1], ['is_processed'=>0], 'lite');
     }
     $qs = $_GET; unset($qs['islendi_toggle']);
     header('Location: transactions.php?' . http_build_query($qs)); exit;
@@ -66,25 +66,25 @@ $f_urun_id    = (int)($_GET['urun_id']   ?? 0);
 $f_tur     = in_array($_GET['tur']     ?? '', ['arac','tesis']) ? $_GET['tur'] : 'tumu';
 $f_islendi = in_array($_GET['islendi'] ?? '', ['islendi','islenmedi']) ? $_GET['islendi'] : 'tumu';
 
-$where  = ["lk.aktif = 1"];
+$where  = ["lk.is_active = 1"];
 $params = [];
 
-if ($f_tarih_bas) { $where[] = "lk.tarih >= ?"; $params[] = $f_tarih_bas; }
-if ($f_tarih_bit) { $where[] = "lk.tarih <= ?"; $params[] = $f_tarih_bit; }
-if ($f_arac_id)   { $where[] = "lk.arac_id = ?"; $params[] = $f_arac_id; }
-if ($f_tesis_id)  { $where[] = "lk.tesis_id = ?"; $params[] = $f_tesis_id; }
-if ($f_urun_id)   { $where[] = "lk.urun_id = ?"; $params[] = $f_urun_id; }
-if ($f_tur === 'arac')  { $where[] = "lk.kayit_turu = 'arac'"; }
-elseif ($f_tur === 'tesis') { $where[] = "lk.kayit_turu = 'tesis'"; }
-if ($f_islendi === 'islendi')   { $where[] = "lk.islendi = 1"; }
-elseif ($f_islendi === 'islenmedi') { $where[] = "lk.islendi = 0"; }
+if ($f_tarih_bas) { $where[] = "lk.date >= ?"; $params[] = $f_tarih_bas; }
+if ($f_tarih_bit) { $where[] = "lk.date <= ?"; $params[] = $f_tarih_bit; }
+if ($f_arac_id)   { $where[] = "lk.vehicle_id = ?"; $params[] = $f_arac_id; }
+if ($f_tesis_id)  { $where[] = "lk.facility_id = ?"; $params[] = $f_tesis_id; }
+if ($f_urun_id)   { $where[] = "lk.product_id = ?"; $params[] = $f_urun_id; }
+if ($f_tur === 'arac')  { $where[] = "lk.record_type = 'arac'"; }
+elseif ($f_tur === 'tesis') { $where[] = "lk.record_type = 'tesis'"; }
+if ($f_islendi === 'islendi')   { $where[] = "lk.is_processed = 1"; }
+elseif ($f_islendi === 'islenmedi') { $where[] = "lk.is_processed = 0"; }
 
 $where_sql = implode(" AND ", $where);
 
 $sayfa_basina = 50;
 $sayfa = max(1, (int)($_GET['sayfa'] ?? 1));
 
-$count_stmt = $pdo->prepare("SELECT COUNT(*), COUNT(CASE WHEN lk.kayit_turu='arac' THEN 1 END), COUNT(CASE WHEN lk.kayit_turu='tesis' THEN 1 END), COALESCE(SUM(lk.miktar),0) FROM lite_kayitlar lk LEFT JOIN lite_urunler u ON lk.urun_id=u.id WHERE $where_sql");
+$count_stmt = $pdo->prepare("SELECT COUNT(*), COUNT(CASE WHEN lk.record_type='arac' THEN 1 END), COUNT(CASE WHEN lk.record_type='tesis' THEN 1 END), COALESCE(SUM(lk.quantity),0) FROM oil_records lk LEFT JOIN products u ON lk.product_id=u.id WHERE $where_sql");
 $count_stmt->execute($params);
 $count_row = $count_stmt->fetch(PDO::FETCH_NUM);
 $toplam_islem  = (int)$count_row[0];
@@ -97,27 +97,28 @@ $sayfa = min($sayfa, $toplam_sayfa);
 $offset = ($sayfa - 1) * $sayfa_basina;
 
 $kayitlar = $pdo->prepare("
-    SELECT lk.*, u.urun_adi, u.urun_kodu, a.plaka, a.marka_model, at.tur_adi AS arac_turu,
-           t.firma_adi, k.ad_soyad, ik.ad_soyad AS islendi_ad_soyad
-    FROM lite_kayitlar lk
-    LEFT JOIN lite_urunler u ON lk.urun_id = u.id
-    LEFT JOIN lite_araclar a ON lk.arac_id = a.id
-    LEFT JOIN lite_arac_turleri at ON a.arac_turu_id = at.id
-    LEFT JOIN lite_tesisler t ON lk.tesis_id = t.id
-    LEFT JOIN kullanicilar k ON lk.olusturan_id = k.id
-    LEFT JOIN kullanicilar ik ON lk.islendi_kullanici_id = ik.id
+    SELECT lk.*, u.product_name AS urun_adi, u.product_code AS urun_kodu,
+           a.plate AS plaka, a.brand_model AS marka_model, vt.type_name AS arac_turu,
+           t.name AS firma_adi, k.full_name AS ad_soyad, ik.full_name AS islendi_ad_soyad
+    FROM oil_records lk
+    LEFT JOIN products u ON lk.product_id = u.id
+    LEFT JOIN vehicles a ON lk.vehicle_id = a.id
+    LEFT JOIN vehicle_types vt ON a.vehicle_type_id = vt.id
+    LEFT JOIN facilities t ON lk.facility_id = t.id
+    LEFT JOIN users k ON lk.created_by = k.id
+    LEFT JOIN users ik ON lk.processed_by = ik.id
     WHERE $where_sql
-    ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
+    ORDER BY lk.date DESC, lk.created_at DESC
     LIMIT $sayfa_basina OFFSET $offset
 ");
 $kayitlar->execute($params);
 $kayitlar = $kayitlar->fetchAll();
 
-$bekleyen_sayisi = (int)$pdo->query("SELECT COUNT(*) FROM lite_kayitlar WHERE aktif=1 AND islendi=0")->fetchColumn();
+$bekleyen_sayisi = (int)$pdo->query("SELECT COUNT(*) FROM oil_records WHERE is_active=1 AND is_processed=0")->fetchColumn();
 
-$tum_araclar  = $pdo->query("SELECT id, plaka, marka_model FROM lite_araclar WHERE aktif=1 ORDER BY plaka")->fetchAll();
-$tum_tesisler = $pdo->query("SELECT id, firma_adi FROM lite_tesisler WHERE aktif=1 ORDER BY firma_adi")->fetchAll();
-$tum_urunler  = $pdo->query("SELECT id, urun_kodu, urun_adi FROM lite_urunler WHERE aktif=1 ORDER BY urun_adi")->fetchAll();
+$tum_araclar  = $pdo->query("SELECT id, plate AS plaka, brand_model AS marka_model FROM vehicles WHERE is_active=1 ORDER BY plate")->fetchAll();
+$tum_tesisler = $pdo->query("SELECT id, name AS firma_adi FROM facilities WHERE is_active=1 ORDER BY name")->fetchAll();
+$tum_urunler  = $pdo->query("SELECT id, product_code AS urun_kodu, product_name AS urun_adi FROM products WHERE is_active=1 ORDER BY product_name")->fetchAll();
 
 $filtre_aktif = $f_tarih_bas || $f_tarih_bit || $f_arac_id || $f_tesis_id || $f_urun_id || $f_tur !== 'tumu' || $f_islendi !== 'tumu';
 
@@ -151,7 +152,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </a>
     <a href="transactions.php?islendi=islendi" class="stat-card success <?= $f_islendi==='islendi' ? 'active' : '' ?>" style="text-decoration:none;">
         <div class="stat-label">✅ İşlendi</div>
-        <div class="stat-value"><?= (int)$pdo->query("SELECT COUNT(*) FROM lite_kayitlar WHERE aktif=1 AND islendi=1")->fetchColumn() ?></div>
+        <div class="stat-value"><?= (int)$pdo->query("SELECT COUNT(*) FROM oil_records WHERE is_active=1 AND is_processed=1")->fetchColumn() ?></div>
         <div class="stat-sub">Kayıt</div>
     </a>
 </div>
@@ -192,7 +193,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <select name="arac_id">
                         <option value="">Tüm Araçlar</option>
                         <?php foreach ($tum_araclar as $a): ?>
-                        <option value="<?= $a['id'] ?>" <?= $f_arac_id==$a['id']?'selected':'' ?>><?= htmlspecialchars($a['plaka'] . ' - ' . $a['marka_model']) ?></option>
+                        <option value="<?= $a['id'] ?>" <?= $f_arac_id==$a['id']?'selected':'' ?>><?= htmlspecialchars($a['plate'] . ' - ' . $a['brand_model']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -201,7 +202,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <select name="tesis_id">
                         <option value="">Tüm Tesisler</option>
                         <?php foreach ($tum_tesisler as $t): ?>
-                        <option value="<?= $t['id'] ?>" <?= $f_tesis_id==$t['id']?'selected':'' ?>><?= htmlspecialchars($t['firma_adi']) ?></option>
+                        <option value="<?= $t['id'] ?>" <?= $f_tesis_id==$t['id']?'selected':'' ?>><?= htmlspecialchars($t['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -210,7 +211,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <select name="urun_id">
                         <option value="">Tüm Ürünler</option>
                         <?php foreach ($tum_urunler as $u): ?>
-                        <option value="<?= $u['id'] ?>" <?= $f_urun_id==$u['id']?'selected':'' ?>><?= htmlspecialchars($u['urun_kodu'] . ' - ' . $u['urun_adi']) ?></option>
+                        <option value="<?= $u['id'] ?>" <?= $f_urun_id==$u['id']?'selected':'' ?>><?= htmlspecialchars($u['urun_kodu'] . ' - ' . $u['product_name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -255,18 +256,18 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php else: ?>
     <div class="kayit-list">
         <?php foreach ($kayitlar as $k):
-            $detay_url = $k['kayit_turu'] === 'arac'
-                ? 'arac_detay.php?id='.$k['arac_id'].'#kayit-'.$k['id']
-                : 'tesis_detay.php?id='.$k['tesis_id'].'#kayit-'.$k['id'];
+            $detay_url = $k['record_type'] === 'arac'
+                ? 'vehicle_detail.php?id='.$k['vehicle_id'].'#kayit-'.$k['id']
+                : 'facility_detail.php?id='.$k['facility_id'].'#kayit-'.$k['id'];
         ?>
-        <div class="islem-item" class="<?= $k['islendi'] ? 'islem-islendi' : '' ?>"
+        <div class="islem-item" class="<?= $k['is_processed'] ? 'islem-islendi' : '' ?>"
              onclick="window.location='<?= $detay_url ?>'" style="cursor:pointer;">
             <div class="islem-hedef">
-                <?php if ($k['kayit_turu'] === 'arac'): ?>
-                <a href="vehicle_detail.php?id=<?= $k['arac_id'] ?>" class="islem-plaka">🚗 <?= htmlspecialchars($k['plaka']) ?></a>
-                <div class="islem-alt"><?= htmlspecialchars($k['marka_model']) ?></div>
+                <?php if ($k['record_type'] === 'arac'): ?>
+                <a href="vehicle_detail.php?id=<?= $k['vehicle_id'] ?>" class="islem-plaka">🚗 <?= htmlspecialchars($k['plate']) ?></a>
+                <div class="islem-alt"><?= htmlspecialchars($k['brand_model']) ?></div>
                 <?php else: ?>
-                <a href="facility_detail.php?id=<?= $k['tesis_id'] ?>" class="islem-plaka">🏭 <?= htmlspecialchars($k['firma_adi']) ?></a>
+                <a href="facility_detail.php?id=<?= $k['facility_id'] ?>" class="islem-plaka">🏭 <?= htmlspecialchars($k['name']) ?></a>
                 <div class="islem-alt">Tesis / Şantiye</div>
                 <?php endif; ?>
             </div>
@@ -274,29 +275,29 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="islem-urun">
                 <div class="islem-urun-adi">
                     <?= htmlspecialchars($k['urun_adi']) ?>
-                    <?php if ($k['yag_bakimi']): ?>
+                    <?php if ($k['is_oil_change']): ?>
                     <span style="background:var(--warning-l);color:var(--warning);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:4px;">🔧 BAKIM</span>
                     <?php endif; ?>
                 </div>
                 <div class="islem-alt">
                     <?= htmlspecialchars($k['urun_kodu']) ?>
-                    <?php if ($k['yag_bakimi'] && $k['mevcut_km']): ?> · 🛣️ <?= number_format($k['mevcut_km']) ?> KM<?php endif; ?>
-                    <?php if ($k['aciklama']): ?> · <?= htmlspecialchars($k['aciklama']) ?><?php endif; ?>
+                    <?php if ($k['is_oil_change'] && $k['current_km']): ?> · 🛣️ <?= number_format($k['current_km']) ?> KM<?php endif; ?>
+                    <?php if ($k['notes']): ?> · <?= htmlspecialchars($k['notes']) ?><?php endif; ?>
                 </div>
             </div>
 
             <div class="islem-sag">
-                <div class="islem-miktar"><?= formatliMiktar($k['miktar']) ?></div>
-                <div class="islem-tarih">🛢️ <?= formatliTarih($k['tarih']) ?></div>
-                <div class="islem-giris-tarihi">🕐 <?= formatliTarih($k['olusturma_tarihi']) ?></div>
+                <div class="islem-miktar"><?= formatliMiktar($k['quantity']) ?></div>
+                <div class="islem-tarih">🛢️ <?= formatliTarih($k['date']) ?></div>
+                <div class="islem-giris-tarihi">🕐 <?= formatliTarih($k['created_at']) ?></div>
                 <div class="islem-kisi">👤 <?= htmlspecialchars($k['ad_soyad'] ?? '-') ?></div>
-                <button onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>')"
+                <button onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['notes'] ?? '', ENT_QUOTES) ?>')"
                         style="margin-top:4px;background:none;border:none;cursor:pointer;font-size:11px;color:var(--muted);padding:0;"
-                        title="Açıklama düzenle">✏️ <?= $k['aciklama'] ? 'Düzenle' : 'Açıklama ekle' ?></button>
+                        title="Açıklama düzenle">✏️ <?= $k['notes'] ? 'Düzenle' : 'Açıklama ekle' ?></button>
             </div>
 
             <div style="flex-shrink:0;text-align:center;">
-                <?php if ($k['islendi']): ?>
+                <?php if ($k['is_processed']): ?>
                 <a href="?islendi_toggle=<?= $k['id'] ?>&<?= http_build_query(array_diff_key($_GET, ['islendi_toggle'=>''])) ?>"
                    class="islendi-btn islendi-btn--on"
                    onclick="event.stopPropagation(); return confirm('İşlendi işaretini kaldırmak istiyor musunuz?')">

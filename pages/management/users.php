@@ -24,21 +24,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     $sifre= $_POST['sifre'];
     $rol  = $_POST['rol'] === 'admin' ? 'admin' : 'kullanici';
     if ($ad && $kadi && strlen($sifre) >= 6) {
-        $mevcut = $pdo->prepare("SELECT * FROM kullanicilar WHERE kullanici_adi=?");
+        $mevcut = $pdo->prepare("SELECT * FROM users WHERE username=?");
         $mevcut->execute([$kadi]); $mevcut = $mevcut->fetch();
 
-        if ($mevcut && $mevcut['aktif'] == 0) {
-            $pdo->prepare("UPDATE kullanicilar SET ad_soyad=?, sifre=?, rol=?, aktif=1 WHERE id=?")->execute([$ad, password_hash($sifre, PASSWORD_DEFAULT), $rol, $mevcut['id']]);
-            logYaz($pdo,'ekle','kullanici','Silinen kullanıcı reaktif edildi: '.$kadi.' ('.$rol.')', $mevcut['id'], null, ['ad_soyad'=>$ad,'kullanici_adi'=>$kadi,'rol'=>$rol], 'lite');
+        if ($mevcut && $mevcut['is_active'] == 0) {
+            $pdo->prepare("UPDATE users SET full_name=?, password=?, role=?, is_active=1 WHERE id=?")->execute([$ad, password_hash($sifre, PASSWORD_DEFAULT), $rol, $mevcut['id']]);
+            logYaz($pdo,'ekle','kullanici','Silinen kullanıcı reaktif edildi: '.$kadi.' ('.$rol.')', $mevcut['id'], null, ['full_name'=>$ad,'username'=>$kadi,'role'=>$rol], 'lite');
             flash('Daha önce silinmiş kullanıcı tekrar aktif edildi.');
         } elseif ($mevcut && $mevcut['aktif'] == 1) {
             flash('Bu kullanıcı adı zaten kullanımda.', 'danger');
         } else {
             try {
                 $email_val = trim($_POST['email'] ?? '') ?: null;
-                $pdo->prepare("INSERT INTO kullanicilar (ad_soyad, kullanici_adi, sifre, rol, email) VALUES (?,?,?,?,?)")->execute([$ad, $kadi, password_hash($sifre, PASSWORD_DEFAULT), $rol, $email_val]);
+                $pdo->prepare("INSERT INTO users (full_name, username, password, role, email) VALUES (?,?,?,?,?)")->execute([$ad, $kadi, password_hash($sifre, PASSWORD_DEFAULT), $rol, $email_val]);
                 $yeni_id = $pdo->lastInsertId();
-                logYaz($pdo,'ekle','kullanici','Yeni kullanıcı eklendi: '.$kadi.' ('.$rol.')', $yeni_id, null, ['ad_soyad'=>$ad,'kullanici_adi'=>$kadi,'rol'=>$rol], 'lite');
+                logYaz($pdo,'ekle','kullanici','Yeni kullanıcı eklendi: '.$kadi.' ('.$rol.')', $yeni_id, null, ['full_name'=>$ad,'username'=>$kadi,'role'=>$rol], 'lite');
                 flash('Kullanıcı eklendi.');
             } catch (PDOException $e) { flash('Bir hata oluştu.', 'danger'); }
         }
@@ -51,12 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rol_degistir'])) {
     $rol_id  = (int)$_POST['rol_id'];
     $yeni_rol = $_POST['yeni_rol'] === 'admin' ? 'admin' : 'kullanici';
     if ($rol_id) {
-        $sr = $pdo->prepare('SELECT * FROM kullanicilar WHERE id=? AND aktif=1'); $sr->execute([$rol_id]); $sr = $sr->fetch();
+        $sr = $pdo->prepare('SELECT * FROM users WHERE id=? AND is_active=1'); $sr->execute([$rol_id]); $sr = $sr->fetch();
         if ($sr) {
-            $eski_rol = $sr['rol'];
-            $pdo->prepare("UPDATE kullanicilar SET rol=? WHERE id=?")->execute([$yeni_rol, $rol_id]);
-            logYaz($pdo,'guncelle','kullanici','Kullanıcı rolü değiştirildi: '.$sr['kullanici_adi'].' ('.$eski_rol.' → '.$yeni_rol.')', $rol_id, ['rol'=>$eski_rol], ['rol'=>$yeni_rol], 'lite');
-            flash($sr['ad_soyad'] . ' kullanıcısının rolü ' . $yeni_rol . ' olarak güncellendi.');
+            $eski_rol = $sr['role'];
+            $pdo->prepare("UPDATE users SET role=? WHERE id=?")->execute([$yeni_rol, $rol_id]);
+            logYaz($pdo,'guncelle','kullanici','Kullanıcı rolü değiştirildi: '.$sr['username'].' ('.$eski_rol.' → '.$yeni_rol.')', $rol_id, ['role'=>$eski_rol], ['role'=>$yeni_rol], 'lite');
+            flash($sr['full_name'] . ' kullanıcısının rolü ' . $yeni_rol . ' olarak güncellendi.');
         } else { flash('Kullanıcı bulunamadı.', 'danger'); }
     }
     header('Location: users.php'); exit;
@@ -67,11 +67,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sifre_reset'])) {
     $reset_id  = (int)$_POST['reset_id'];
     $yeni_sifre = $_POST['yeni_sifre'] ?? '';
     if ($reset_id && strlen($yeni_sifre) >= 6) {
-        $sr = $pdo->prepare('SELECT * FROM kullanicilar WHERE id=? AND aktif=1'); $sr->execute([$reset_id]); $sr = $sr->fetch();
+        $sr = $pdo->prepare('SELECT * FROM users WHERE id=? AND is_active=1'); $sr->execute([$reset_id]); $sr = $sr->fetch();
         if ($sr) {
-            $pdo->prepare("UPDATE kullanicilar SET sifre=? WHERE id=?")->execute([password_hash($yeni_sifre, PASSWORD_DEFAULT), $reset_id]);
-            logYaz($pdo,'guncelle','kullanici','Admin tarafından şifre sıfırlandı: '.$sr['kullanici_adi'], $reset_id, null, null, 'lite');
-            flash($sr['ad_soyad'] . ' kullanıcısının şifresi güncellendi.');
+            $pdo->prepare("UPDATE users SET password=? WHERE id=?")->execute([password_hash($yeni_sifre, PASSWORD_DEFAULT), $reset_id]);
+            logYaz($pdo,'guncelle','kullanici','Admin tarafından şifre sıfırlandı: '.$sr['username'], $reset_id, null, null, 'lite');
+            flash($sr['full_name'] . ' kullanıcısının şifresi güncellendi.');
         } else { flash('Kullanıcı bulunamadı.', 'danger'); }
     } else { flash('Şifre en az 6 karakter olmalıdır.', 'danger'); }
     header('Location: users.php'); exit;
@@ -81,9 +81,9 @@ if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
     if ($sil_id === $ku['id']) { flash('Kendi hesabınızı silemezsiniz.', 'danger'); }
     else {
-        $sr = $pdo->prepare('SELECT * FROM kullanicilar WHERE id=?'); $sr->execute([$sil_id]); $sr = $sr->fetch();
-        $pdo->prepare("UPDATE kullanicilar SET aktif=0 WHERE id=?")->execute([$sil_id]);
-        if ($sr) logYaz($pdo,'sil','kullanici','Kullanıcı silindi: '.$sr['kullanici_adi'].' ('.$sr['rol'].')', $sil_id, ['kullanici_adi'=>$sr['kullanici_adi'],'ad_soyad'=>$sr['ad_soyad'],'rol'=>$sr['rol']], null, 'lite');
+        $sr = $pdo->prepare('SELECT * FROM users WHERE id=?'); $sr->execute([$sil_id]); $sr = $sr->fetch();
+        $pdo->prepare("UPDATE users SET is_active=0 WHERE id=?")->execute([$sil_id]);
+        if ($sr) logYaz($pdo,'sil','kullanici','Kullanıcı silindi: '.$sr['username'].' ('.$sr['role'].')', $sil_id, ['username'=>$sr['username'],'full_name'=>$sr['full_name'],'role'=>$sr['role']], null, 'lite');
         flash('Kullanıcı silindi.');
     }
     header('Location: users.php'); exit;
@@ -97,16 +97,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['email_guncelle'])) {
         if ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             flash('Geçersiz e-posta adresi.', 'danger');
         } else {
-            $sr = $pdo->prepare('SELECT * FROM kullanicilar WHERE id=?'); $sr->execute([$eid]); $sr = $sr->fetch();
-            $pdo->prepare("UPDATE kullanicilar SET email=? WHERE id=?")->execute([$email, $eid]);
-            logYaz($pdo,'guncelle','kullanici','E-posta güncellendi: '.($sr['kullanici_adi']??''), $eid, ['email'=>$sr['email']], ['email'=>$email], 'lite');
+            $sr = $pdo->prepare('SELECT * FROM users WHERE id=?'); $sr->execute([$eid]); $sr = $sr->fetch();
+            $pdo->prepare("UPDATE users SET email=? WHERE id=?")->execute([$email, $eid]);
+            logYaz($pdo,'guncelle','kullanici','E-posta güncellendi: '.($sr['username']??''), $eid, ['email'=>$sr['email']], ['email'=>$email], 'lite');
             flash('E-posta güncellendi.');
         }
     }
     header('Location: users.php'); exit;
 }
 
-$kullanicilar = $pdo->query("SELECT * FROM kullanicilar WHERE aktif=1 ORDER BY ad_soyad")->fetchAll();
+$kullanicilar = $pdo->query("SELECT * FROM users WHERE is_active=1 ORDER BY full_name")->fetchAll();
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -158,13 +158,13 @@ require_once __DIR__ . '/../../includes/header.php';
             <tbody>
             <?php foreach ($kullanicilar as $u): ?>
             <tr>
-                <td><?= htmlspecialchars($u['ad_soyad']) ?></td>
-                <td><code><?= htmlspecialchars($u['kullanici_adi']) ?></code></td>
+                <td><?= htmlspecialchars($u['full_name']) ?></td>
+                <td><code><?= htmlspecialchars($u['username']) ?></code></td>
                 <td style="font-size:12px;"><?= $u['email'] ? htmlspecialchars($u['email']) : '<span style="color:var(--muted)">—</span>' ?></td>
-                <td><?= $u['rol']==='admin' ? '<span class="badge badge-warning">👑 Admin</span>' : '<span class="badge badge-info">👤 Kullanıcı</span>' ?></td>
+                <td><?= $u['role']==='admin' ? '<span class="badge badge-warning">👑 Admin</span>' : '<span class="badge badge-info">👤 Kullanıcı</span>' ?></td>
                 <td style="display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn btn-sm btn-secondary" onclick="sifreModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['ad_soyad'], ENT_QUOTES) ?>')">🔑 Şifre</button>
-                    <button class="btn btn-sm btn-secondary" onclick="rolModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['ad_soyad'], ENT_QUOTES) ?>', '<?= $u['rol'] ?>')">👤 Rol</button>
+                    <button class="btn btn-sm btn-secondary" onclick="sifreModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['full_name'], ENT_QUOTES) ?>')">🔑 Şifre</button>
+                    <button class="btn btn-sm btn-secondary" onclick="rolModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['full_name'], ENT_QUOTES) ?>', '<?= $u['role'] ?>')">👤 Rol</button>
                     <button class="btn btn-sm btn-secondary" onclick="emailModal(<?= $u['id'] ?>, '<?= htmlspecialchars($u['email'] ?? '', ENT_QUOTES) ?>')">📧 E-posta</button>
                     <?php if ($u['id'] !== $ku['id']): ?>
                     <a href="?sil=<?= $u['id'] ?>" class="btn btn-sm btn-danger" onclick="return confirm('Silmek istediğinize emin misiniz?')">🗑️ Sil</a>

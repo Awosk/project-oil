@@ -19,16 +19,16 @@ if (!$id) { header('Location: ../index.php'); exit; }
 $ku = mevcutKullanici();
 
 $arac = $pdo->prepare("
-    SELECT a.*, t.tur_adi
-    FROM lite_araclar a
-    LEFT JOIN lite_arac_turleri t ON a.arac_turu_id = t.id
-    WHERE a.id=? AND a.aktif=1
+    SELECT a.*, t.type_name AS tur_adi
+    FROM vehicles a
+    LEFT JOIN vehicle_types t ON a.vehicle_type_id = t.id
+    WHERE a.id=? AND a.is_active=1
 ");
 $arac->execute([$id]);
 $arac = $arac->fetch();
 if (!$arac) { flash('Araç bulunamadı.', 'danger'); header('Location: ../index.php'); exit; }
 
-$sayfa_basligi = $arac['plaka'];
+$sayfa_basligi = $arac['plate'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['yag_ekle'])) {
     csrfDogrula();
@@ -40,15 +40,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['yag_ekle'])) {
     $mevcut_km  = ($yag_bakimi && !empty($_POST['mevcut_km'])) ? (int)$_POST['mevcut_km'] : null;
 
     if ($urun_id && $miktar > 0 && $tarih) {
-        $stmt = $pdo->prepare("INSERT INTO lite_kayitlar (kayit_turu,arac_id,urun_id,miktar,tarih,aciklama,yag_bakimi,mevcut_km,olusturan_id) VALUES ('arac',?,?,?,?,?,?,?,?)");
+        $stmt = $pdo->prepare("INSERT INTO oil_records (record_type,vehicle_id,product_id,quantity,date,notes,is_oil_change,current_km,created_by) VALUES ('arac',?,?,?,?,?,?,?,?)");
         $stmt->execute([$id,$urun_id,$miktar,$tarih,$aciklama?:null,$yag_bakimi,$mevcut_km,$ku['id']]);
         $yeni_id = $pdo->lastInsertId();
-        $ul = $pdo->prepare('SELECT urun_kodu,urun_adi FROM lite_urunler WHERE id=?');
+        $ul = $pdo->prepare('SELECT product_code,product_name FROM products WHERE id=?');
         $ul->execute([$urun_id]); $ul = $ul->fetch();
-        $log_msg = $arac['plaka'].' aracına yağ eklendi: '.($ul['urun_kodu']??'').' '.($ul['urun_adi']??'').', '.$miktar.'L';
+        $log_msg = $arac['plate'].' aracına yağ eklendi: '.($ul['product_code']??'').' '.($ul['product_name']??'').', '.$miktar.'L';
         if ($yag_bakimi) $log_msg .= ' [YAĞ BAKIMI - '.($mevcut_km ? number_format($mevcut_km).' KM' : 'KM girilmedi').']';
         if ($aciklama)   $log_msg .= '. Açıklama: '.$aciklama;
-        logYaz($pdo,'ekle','arac_kayit',$log_msg,$yeni_id,null,['plaka'=>$arac['plaka'],'urun_id'=>$urun_id,'miktar'=>$miktar,'tarih'=>$tarih,'yag_bakimi'=>$yag_bakimi,'mevcut_km'=>$mevcut_km,'aciklama'=>$aciklama],'lite');
+        logYaz($pdo,'ekle','arac_kayit',$log_msg,$yeni_id,null,['plate'=>$arac['plate'],'product_id'=>$urun_id,'quantity'=>$miktar,'date'=>$tarih,'is_oil_change'=>$yag_bakimi,'current_km'=>$mevcut_km,'notes'=>$aciklama],'lite');
         flash('Yağ kaydı eklendi.');
     } else {
         flash('Ürün, miktar ve tarih zorunludur.', 'danger');
@@ -60,11 +60,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
     csrfDogrula();
     $kayit_id  = (int)$_POST['kayit_id'];
     $yeni_aciklama = trim($_POST['aciklama_yeni'] ?? '');
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,u.urun_adi FROM lite_kayitlar lk JOIN lite_urunler u ON lk.urun_id=u.id WHERE lk.id=? AND lk.arac_id=? AND lk.aktif=1');
+    $sr = $pdo->prepare('SELECT lk.*,u.product_code AS urun_kodu,u.product_name AS urun_adi FROM oil_records lk JOIN products u ON lk.product_id=u.id WHERE lk.id=? AND lk.vehicle_id=? AND lk.is_active=1');
     $sr->execute([$kayit_id, $id]); $sr = $sr->fetch();
     if ($sr) {
-        $pdo->prepare("UPDATE lite_kayitlar SET aciklama=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
-        logYaz($pdo,'guncelle','arac_kayit', $arac['plaka'].' Plakalı Aracın '.$sr['urun_kodu'].' kaydının açıklaması güncellendi', $kayit_id, ['aciklama'=>$sr['aciklama']], ['aciklama'=>$yeni_aciklama], 'lite');
+        $pdo->prepare("UPDATE oil_records SET notes=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
+        logYaz($pdo,'guncelle','arac_kayit', $arac['plate'].' Plakalı Aracın '.$sr['urun_kodu'].' kaydının açıklaması güncellendi', $kayit_id, ['notes'=>$sr['notes']], ['notes'=>$yeni_aciklama], 'lite');
         flash('Açıklama güncellendi.');
     }
     header('Location: vehicle_detail.php?id='.$id); exit;
@@ -72,28 +72,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
 
 if (isset($_GET['yag_sil'])) {
     $sil_id = (int)$_GET['yag_sil'];
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,u.urun_adi FROM lite_kayitlar lk JOIN lite_urunler u ON lk.urun_id=u.id WHERE lk.id=? AND lk.arac_id=?');
+    $sr = $pdo->prepare('SELECT lk.*,u.product_code AS urun_kodu,u.product_name AS urun_adi FROM oil_records lk JOIN products u ON lk.product_id=u.id WHERE lk.id=? AND lk.vehicle_id=?');
     $sr->execute([$sil_id,$id]); $sr = $sr->fetch();
     if ($sr) {
-        $pdo->prepare("UPDATE lite_kayitlar SET aktif=0 WHERE id=? AND arac_id=?")->execute([$sil_id,$id]);
-        $log_msg = $arac['plaka'].' aracından yağ kaydı silindi: '.$sr['urun_kodu'].' '.$sr['urun_adi'].', '.$sr['miktar'].'L';
-        if ($sr['yag_bakimi']) $log_msg .= ' [YAĞ BAKIMI]';
-        if ($sr['aciklama'])   $log_msg .= '. Açıklama: '.$sr['aciklama'];
+        $pdo->prepare("UPDATE oil_records SET is_active=0 WHERE id=? AND vehicle_id=?")->execute([$sil_id,$id]);
+        $log_msg = $arac['plate'].' aracından yağ kaydı silindi: '.$sr['urun_kodu'].' '.$sr['urun_adi'].', '.$sr['quantity'].'L';
+        if ($sr['is_oil_change']) $log_msg .= ' [YAĞ BAKIMI]';
+        if ($sr['notes'])         $log_msg .= '. Açıklama: '.$sr['notes'];
         logYaz($pdo,'sil','arac_kayit',$log_msg,$sil_id,$sr,null,'lite');
     }
     flash('Yağ kaydı silindi.');
     header('Location: vehicle_detail.php?id='.$id); exit;
 }
 
-$urunler = $pdo->query("SELECT * FROM lite_urunler WHERE aktif=1 ORDER BY urun_adi")->fetchAll();
+$urunler = $pdo->query("SELECT * FROM products WHERE is_active=1 ORDER BY product_name")->fetchAll();
 
 $yag_kayitlari = $pdo->prepare("
-    SELECT lk.*,u.urun_adi,u.urun_kodu,k.ad_soyad
-    FROM lite_kayitlar lk
-    JOIN lite_urunler u ON lk.urun_id=u.id
-    LEFT JOIN kullanicilar k ON lk.olusturan_id=k.id
-    WHERE lk.arac_id=? AND lk.aktif=1
-    ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
+    SELECT lk.*,u.product_name AS urun_adi,u.product_code AS urun_kodu,k.full_name AS ad_soyad
+    FROM oil_records lk
+    JOIN products u ON lk.product_id=u.id
+    LEFT JOIN users k ON lk.created_by=k.id
+    WHERE lk.vehicle_id=? AND lk.is_active=1
+    ORDER BY lk.date DESC, lk.created_at DESC
 ");
 $yag_kayitlari->execute([$id]);
 $yag_kayitlari = $yag_kayitlari->fetchAll();
@@ -104,7 +104,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="page-header">
     <h1>
         <span>🚗</span>
-        <?= htmlspecialchars($arac['plaka']) ?>
+        <?= htmlspecialchars($arac['plate']) ?>
         <span class="badge badge-info" style="font-size:13px;"><?= htmlspecialchars($arac['tur_adi'] ?? '—') ?></span>
     </h1>
     <a href="../../index.php" class="btn btn-secondary btn-sm">← Geri</a>
@@ -114,7 +114,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
         <div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;">Marka / Model</div>
-            <div style="font-weight:600;"><?= htmlspecialchars($arac['marka_model']) ?></div>
+            <div style="font-weight:600;"><?= htmlspecialchars($arac['brand_model']) ?></div>
         </div>
         <div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;">Toplam Kayıt</div>
@@ -123,21 +123,21 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php
         $son_bakim = null;
         foreach ($yag_kayitlari as $yk) {
-            if ($yk['yag_bakimi']) { $son_bakim = $yk; break; }
+            if ($yk['is_oil_change']) { $son_bakim = $yk; break; }
         }
         ?>
         <?php if (!empty($yag_kayitlari)): ?>
         <div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;">Son İşlem</div>
-            <div style="font-weight:600;"><?= formatliTarih($yag_kayitlari[0]['olusturma_tarihi']) ?></div>
+            <div style="font-weight:600;"><?= formatliTarih($yag_kayitlari[0]['created_at']) ?></div>
         </div>
         <?php endif; ?>
         <?php if ($son_bakim): ?>
         <div>
             <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;">Son Yağ Bakımı</div>
             <div style="font-weight:600;color:var(--warning);">
-                🔧 <?= formatliTarih($son_bakim['tarih']) ?>
-                <?php if ($son_bakim['mevcut_km']): ?> · <?= number_format($son_bakim['mevcut_km']) ?> KM<?php endif; ?>
+                🔧 <?= formatliTarih($son_bakim['date']) ?>
+                <?php if ($son_bakim['current_km']): ?> · <?= number_format($son_bakim['current_km']) ?> KM<?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
@@ -154,7 +154,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <select name="urun_id" required>
                     <option value="">-- Ürün Seçin --</option>
                     <?php foreach ($urunler as $u): ?>
-                    <option value="<?= $u['id'] ?>"><?= htmlspecialchars($u['urun_kodu'].' - '.$u['urun_adi']) ?></option>
+                    <option value="<?= $u['id'] ?>"><?= htmlspecialchars($u['product_code'].' - '.$u['product_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -194,28 +194,28 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php else: ?>
     <div class="kayit-list">
         <?php foreach ($yag_kayitlari as $k): ?>
-        <div id="kayit-<?= $k['id'] ?>" class="kayit-item" style="<?= $k['yag_bakimi'] ? 'border-left:3px solid var(--warning);' : '' ?>">
+        <div id="kayit-<?= $k['id'] ?>" class="kayit-item" style="<?= $k['is_oil_change'] ? 'border-left:3px solid var(--warning);' : '' ?>">
             <div class="kayit-info">
                 <div class="kayit-urun">
                     <?= htmlspecialchars($k['urun_adi']) ?>
                     <small><?= htmlspecialchars($k['urun_kodu']) ?></small>
-                    <?php if ($k['yag_bakimi']): ?>
+                    <?php if ($k['is_oil_change']): ?>
                     <span style="background:var(--warning-l);color:var(--warning);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:4px;">🔧 BAKIM</span>
                     <?php endif; ?>
                 </div>
                 <div class="kayit-meta">
-                    🛢️ <strong title="Yağın verildiği tarih"><?= formatliTarih($k['tarih']) ?></strong>
-                    <span class="kayit-giris-tarihi">· 🕐 <?= formatliTarih($k['olusturma_tarihi']) ?></span>
+                    🛢️ <strong title="Yağın verildiği tarih"><?= formatliTarih($k['date']) ?></strong>
+                    <span class="kayit-giris-tarihi">· 🕐 <?= formatliTarih($k['created_at']) ?></span>
                     · 👤 <?= htmlspecialchars($k['ad_soyad'] ?? '-') ?>
-                    <?php if ($k['yag_bakimi'] && $k['mevcut_km']): ?>
-                    · 🛣️ <?= number_format($k['mevcut_km']) ?> KM
+                    <?php if ($k['is_oil_change'] && $k['current_km']): ?>
+                    · 🛣️ <?= number_format($k['current_km']) ?> KM
                     <?php endif; ?>
-                    <?php if ($k['aciklama']): ?> · <?= htmlspecialchars($k['aciklama']) ?><?php endif; ?>
+                    <?php if ($k['notes']): ?> · <?= htmlspecialchars($k['notes']) ?><?php endif; ?>
                 </div>
             </div>
-            <div class="kayit-miktar"><?= formatliMiktar($k['miktar']) ?></div>
+            <div class="kayit-miktar"><?= formatliMiktar($k['quantity']) ?></div>
             <button class="btn btn-sm btn-secondary" style="flex-shrink:0;font-size:11px;padding:4px 8px;"
-                onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>')" title="Açıklama düzenle">✏️</button>
+                onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['notes'] ?? '', ENT_QUOTES) ?>')" title="Açıklama düzenle">✏️</button>
             <button class="kayit-sil" onclick="if(confirm('Bu kaydı silmek istiyor musunuz?')) location.href='vehicle_detail.php?id=<?= $id ?>&yag_sil=<?= $k['id'] ?>'" title="Sil">🗑️</button>
         </div>
         <?php endforeach; ?>

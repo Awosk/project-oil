@@ -20,7 +20,7 @@ $ku = mevcutKullanici();
 // ── TEK LOG SİL ──
 if (isset($_GET['log_sil']) && is_numeric($_GET['log_sil'])) {
     $log_id = (int)$_GET['log_sil'];
-    $pdo->prepare("DELETE FROM sistem_loglari WHERE id=?")->execute([$log_id]);
+    $pdo->prepare("DELETE FROM system_logs WHERE id=?")->execute([$log_id]);
     flash('Log kaydı silindi.');
     $qs = $_GET; unset($qs['log_sil']);
     header('Location: logs.php?' . http_build_query($qs)); exit;
@@ -32,30 +32,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($mod === 'tumü') {
         // Tabloyu düşür ve yeniden oluştur — en hızlı temizleme yöntemi
-        $pdo->exec("DROP TABLE IF EXISTS `sistem_loglari`");
-        $pdo->exec("CREATE TABLE `sistem_loglari` (
+        $pdo->exec("DROP TABLE IF EXISTS `system_logs`");
+        $pdo->exec("CREATE TABLE `system_logs` (
             `id` int(11) NOT NULL AUTO_INCREMENT,
-            `kullanici_id` int(11) DEFAULT NULL,
-            `kullanici_adi` varchar(50) DEFAULT NULL,
-            `ad_soyad` varchar(100) DEFAULT NULL,
-            `sistem` enum('ana','lite') NOT NULL DEFAULT 'ana',
-            `aksiyon` enum('ekle','guncelle','sil','giris','cikis') NOT NULL,
-            `modul` varchar(50) NOT NULL,
-            `kayit_id` int(11) DEFAULT NULL,
-            `aciklama` text NOT NULL,
-            `eski_deger` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`eski_deger`)),
-            `yeni_deger` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`yeni_deger`)),
-            `ip_adresi` varchar(45) DEFAULT NULL,
-            `olusturma_tarihi` datetime NOT NULL DEFAULT current_timestamp(),
+            `user_id` int(11) DEFAULT NULL,
+            `username` varchar(50) DEFAULT NULL,
+            `full_name` varchar(100) DEFAULT NULL,
+            `system` enum('ana','lite') NOT NULL DEFAULT 'ana',
+            `action` enum('ekle','guncelle','sil','giris','cikis') NOT NULL,
+            `module` varchar(50) NOT NULL,
+            `record_id` int(11) DEFAULT NULL,
+            `description` text NOT NULL,
+            `old_value` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`old_value`)),
+            `new_value` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`new_value`)),
+            `ip_address` varchar(45) DEFAULT NULL,
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
             PRIMARY KEY (`id`),
-            KEY `kullanici_id` (`kullanici_id`),
-            CONSTRAINT `sistem_loglari_ibfk_1` FOREIGN KEY (`kullanici_id`) REFERENCES `kullanicilar` (`id`) ON DELETE SET NULL
+            KEY `user_id` (`user_id`),
+            CONSTRAINT `system_logs_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci");
         flash('Tüm log kayıtları silindi, tablo sıfırlandı.');
 
     } elseif ($mod === 'tarih' && !empty($_POST['sil_tarih_bit'])) {
         $tarih = $_POST['sil_tarih_bit'];
-        $stmt  = $pdo->prepare("DELETE FROM sistem_loglari WHERE sistem='lite' AND DATE(olusturma_tarihi) <= ?");
+        $stmt  = $pdo->prepare("DELETE FROM system_logs WHERE system='lite' AND DATE(created_at) <= ?");
         $stmt->execute([$tarih]);
         flash($stmt->rowCount() . ' log kaydı silindi (' . date('d.m.Y', strtotime($tarih)) . ' tarihine kadar).');
 
@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ids = array_values(array_filter(array_map('intval', (array)$_POST['log_ids'])));
         if (!empty($ids)) {
             $ph   = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $pdo->prepare("DELETE FROM sistem_loglari WHERE id IN ($ph) AND sistem='lite'");
+            $stmt = $pdo->prepare("DELETE FROM system_logs WHERE id IN ($ph) AND system='lite'");
             $stmt->execute($ids);
             flash($stmt->rowCount() . ' log kaydı silindi.');
         }
@@ -78,64 +78,64 @@ $f_modul     = $_GET['modul']   ?? '';
 $f_tarih_bas = $_GET['tarih_bas'] ?? '';
 $f_tarih_bit = $_GET['tarih_bit'] ?? date('Y-m-d');
 
-$where   = ["sistem = 'lite'"];
+$where   = ["system = 'lite'"];
 $params  = [];
 
 if ($f_kullanici) {
-    $where[]  = "(kullanici_adi LIKE ? OR ad_soyad LIKE ?)";
+    $where[]  = "(username LIKE ? OR full_name LIKE ?)";
     $params[] = "%$f_kullanici%";
     $params[] = "%$f_kullanici%";
 }
 if ($f_aksiyon) {
-    $where[]  = "aksiyon = ?";
+    $where[]  = "action = ?";
     $params[] = $f_aksiyon;
 }
 if ($f_modul) {
-    $where[]  = "modul = ?";
+    $where[]  = "module = ?";
     $params[] = $f_modul;
 }
 if ($f_tarih_bas) {
-    $where[]  = "DATE(olusturma_tarihi) >= ?";
+    $where[]  = "DATE(created_at) >= ?";
     $params[] = $f_tarih_bas;
 }
 if ($f_tarih_bit) {
-    $where[]  = "DATE(olusturma_tarihi) <= ?";
+    $where[]  = "DATE(created_at) <= ?";
     $params[] = $f_tarih_bit;
 }
 
 $where_sql = implode(" AND ", $where);
 
 $loglar = $pdo->prepare("
-    SELECT * FROM sistem_loglari
+    SELECT * FROM system_logs
     WHERE $where_sql
-    ORDER BY olusturma_tarihi DESC
+    ORDER BY created_at DESC
     LIMIT 1000
 ");
 $loglar->execute($params);
 $loglar = $loglar->fetchAll();
 
 // Özet sayılar (bugün)
-$bugun      = $pdo->query("SELECT COUNT(*) FROM sistem_loglari WHERE sistem='lite' AND DATE(olusturma_tarihi)=CURDATE()")->fetchColumn();
-$bugun_sil  = $pdo->query("SELECT COUNT(*) FROM sistem_loglari WHERE sistem='lite' AND aksiyon='sil' AND DATE(olusturma_tarihi)=CURDATE()")->fetchColumn();
-$bugun_ekle = $pdo->query("SELECT COUNT(*) FROM sistem_loglari WHERE sistem='lite' AND aksiyon='ekle' AND DATE(olusturma_tarihi)=CURDATE()")->fetchColumn();
-$toplam     = $pdo->query("SELECT COUNT(*) FROM sistem_loglari WHERE sistem='lite'")->fetchColumn();
+$bugun      = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE system='lite' AND DATE(created_at)=CURDATE()")->fetchColumn();
+$bugun_sil  = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE system='lite' AND action='sil' AND DATE(created_at)=CURDATE()")->fetchColumn();
+$bugun_ekle = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE system='lite' AND action='ekle' AND DATE(created_at)=CURDATE()")->fetchColumn();
+$toplam     = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE system='lite'")->fetchColumn();
 
 $filtre_aktif = $f_kullanici || $f_aksiyon || $f_modul || $f_tarih_bas;
 
 // arac_kayit / islendi / tesis_kayit modüllerindeki kayit_id'leri toplu çek
 $kayit_id_listesi = array_filter(array_unique(array_column(
-    array_filter($loglar, fn($l) => in_array($l['modul'], ['arac_kayit','islendi','tesis_kayit'])),
-    'kayit_id'
+    array_filter($loglar, fn($l) => in_array($l['module'], ['arac_kayit','islendi','tesis_kayit'])),
+    'record_id'
 )));
-$kayit_hedef_map = []; // kayit_id => ['turu'=>'arac'|'tesis', 'hedef_id'=>X]
+$kayit_hedef_map = []; // record_id => ['turu'=>'arac'|'tesis', 'hedef_id'=>X]
 if (!empty($kayit_id_listesi)) {
     $ph = implode(',', array_fill(0, count($kayit_id_listesi), '?'));
-    $stmt = $pdo->prepare("SELECT id, kayit_turu, arac_id, tesis_id FROM lite_kayitlar WHERE id IN ($ph)");
+    $stmt = $pdo->prepare("SELECT id, record_type, vehicle_id, facility_id FROM oil_records WHERE id IN ($ph)");
     $stmt->execute(array_values($kayit_id_listesi));
     foreach ($stmt->fetchAll() as $row) {
         $kayit_hedef_map[$row['id']] = [
-            'turu'     => $row['kayit_turu'],
-            'hedef_id' => $row['kayit_turu'] === 'arac' ? $row['arac_id'] : $row['tesis_id'],
+            'turu'     => $row['record_type'],
+            'hedef_id' => $row['record_type'] === 'arac' ? $row['vehicle_id'] : $row['facility_id'],
         ];
     }
 }
@@ -246,22 +246,22 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php else: ?>
     <div class="log-liste">
         <?php foreach ($loglar as $log):
-            $aksiyon_stil = match($log['aksiyon']) {
+            $aksiyon_stil = match($log['action']) {
                 'ekle'      => ['renk' => '#16a34a', 'bg' => '#dcfce7', 'ikon' => '➕', 'etiket' => 'Ekleme'],
                 'sil'       => ['renk' => '#dc2626', 'bg' => '#fee2e2', 'ikon' => '🗑️', 'etiket' => 'Silme'],
                 'guncelle'  => ['renk' => '#d97706', 'bg' => '#fef3c7', 'ikon' => '✏️', 'etiket' => 'Güncelleme'],
                 'giris'     => ['renk' => '#2563a8', 'bg' => '#dbeafe', 'ikon' => '🔐', 'etiket' => 'Giriş'],
                 'cikis'     => ['renk' => '#64748b', 'bg' => '#f1f5f9', 'ikon' => '🚪', 'etiket' => 'Çıkış'],
-                default     => ['renk' => '#64748b', 'bg' => '#f1f5f9', 'ikon' => '•',  'etiket' => $log['aksiyon']],
+                default     => ['renk' => '#64748b', 'bg' => '#f1f5f9', 'ikon' => '•',  'etiket' => $log['action']],
             };
-            $eski = $log['eski_deger'] ? json_decode($log['eski_deger'], true) : null;
-            $yeni = $log['yeni_deger'] ? json_decode($log['yeni_deger'], true) : null;
+            $eski = $log['old_value'] ? json_decode($log['old_value'], true) : null;
+            $yeni = $log['new_value'] ? json_decode($log['new_value'], true) : null;
 
             // Hedef link hesapla
             $hedef_url = null;
-            $kid = (int)($log['kayit_id'] ?? 0);
+            $kid = (int)($log['record_id'] ?? 0);
             if ($kid) {
-                switch ($log['modul']) {
+                switch ($log['module']) {
                     case 'arac':
                         $hedef_url = ROOT_URL . 'pages/operations/vehicle_detail.php?id=' . $kid;
                         break;
@@ -294,7 +294,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 }
             }
         ?>
-        <div class="log-item <?= $log['aksiyon'] === 'sil' ? 'log-sil' : '' ?> <?= $hedef_url ? 'log-tiklanabilir' : '' ?>"
+        <div class="log-item <?= $log['action'] === 'sil' ? 'log-sil' : '' ?> <?= $hedef_url ? 'log-tiklanabilir' : '' ?>"
              <?= $hedef_url ? 'onclick="logTikla(event, \''.htmlspecialchars($hedef_url).'\')" title="Git →"' : '' ?>>
             <!-- Checkbox -->
             <input type="checkbox" class="log-cb" value="<?= $log['id'] ?>"
@@ -305,46 +305,46 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
             <div class="log-icerik">
                 <div class="log-aciklama">
-                    <?= htmlspecialchars($log['aciklama']) ?>
+                    <?= htmlspecialchars($log['description']) ?>
                     <?php if ($hedef_url): ?>
                     <span style="font-size:10px;color:var(--muted);margin-left:6px;">→ git</span>
                     <?php endif; ?>
                 </div>
                 <div class="log-meta">
-                    <span>👤 <strong><?= htmlspecialchars($log['ad_soyad'] ?? $log['kullanici_adi'] ?? 'Bilinmiyor') ?></strong></span>
+                    <span>👤 <strong><?= htmlspecialchars($log['full_name'] ?? $log['username'] ?? 'Bilinmiyor') ?></strong></span>
                     <span style="color:var(--border)">·</span>
-                    <span>📦 <?= htmlspecialchars($log['modul']) ?></span>
-                    <?php if ($log['kayit_id']): ?>
+                    <span>📦 <?= htmlspecialchars($log['module']) ?></span>
+                    <?php if ($log['record_id']): ?>
                     <span style="color:var(--border)">·</span>
-                    <span>#<?= $log['kayit_id'] ?></span>
+                    <span>#<?= $log['record_id'] ?></span>
                     <?php endif; ?>
                     <span style="color:var(--border)">·</span>
-                    <span>🌐 <?= htmlspecialchars($log['ip_adresi'] ?? '-') ?></span>
+                    <span>🌐 <?= htmlspecialchars($log['ip_address'] ?? '-') ?></span>
                 </div>
                 <!-- Silinen veri varsa göster -->
-                <?php if ($eski && $log['aksiyon'] === 'sil'): ?>
+                <?php if ($eski && $log['action'] === 'sil'): ?>
                 <div class="log-veri log-veri-eski">
                     <span class="log-veri-baslik">🗂️ Silinen Veri:</span>
                     <?php foreach ($eski as $k => $v): ?>
-                    <?php if (!in_array($k, ['sifre','aktif']) && $v !== null && $v !== ''): ?>
+                    <?php if (!in_array($k, ['password','is_active']) && $v !== null && $v !== ''): ?>
                     <span class="log-veri-item"><em><?= htmlspecialchars($k) ?></em>: <?= htmlspecialchars((string)$v) ?></span>
                     <?php endif; ?>
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
-                <?php if ($yeni && $log['aksiyon'] === 'ekle'): ?>
+                <?php if ($yeni && $log['action'] === 'ekle'): ?>
                 <div class="log-veri log-veri-yeni">
                     <span class="log-veri-baslik">📝 Eklenen Veri:</span>
                     <?php foreach ($yeni as $k => $v): ?>
-                    <?php if (!in_array($k, ['sifre']) && $v !== null && $v !== ''): ?>
+                    <?php if (!in_array($k, ['password']) && $v !== null && $v !== ''): ?>
                     <span class="log-veri-item"><em><?= htmlspecialchars($k) ?></em>: <?= htmlspecialchars((string)$v) ?></span>
                     <?php endif; ?>
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
-                <?php if ($log['aksiyon'] === 'guncelle' && ($eski || $yeni)): ?>
+                <?php if ($log['action'] === 'guncelle' && ($eski || $yeni)): ?>
                 <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11px;">
-                    <?php if ($eski): foreach ($eski as $k => $v): if (in_array($k, ['sifre'])) continue; ?>
+                    <?php if ($eski): foreach ($eski as $k => $v): if (in_array($k, ['password'])) continue; ?>
                     <span class="log-veri-eski-span">
                         <em><?= htmlspecialchars($k) ?></em>:
                         <?= ($v !== null && $v !== '') ? htmlspecialchars((string)$v) : '<span class="text-empty">boş</span>' ?>
@@ -353,7 +353,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php if ($eski && $yeni): ?>
                     <span style="color:var(--muted);font-size:13px;">→</span>
                     <?php endif; ?>
-                    <?php if ($yeni): foreach ($yeni as $k => $v): if (in_array($k, ['sifre'])) continue; ?>
+                    <?php if ($yeni): foreach ($yeni as $k => $v): if (in_array($k, ['password'])) continue; ?>
                     <span class="log-veri-yeni-span">
                         <em><?= htmlspecialchars($k) ?></em>:
                         <?= ($v !== null && $v !== '') ? htmlspecialchars((string)$v) : '<span class="text-empty">boş</span>' ?>
@@ -363,8 +363,8 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endif; ?>
             </div>
             <div class="log-zaman">
-                <?= date('d.m.Y', strtotime($log['olusturma_tarihi'])) ?><br>
-                <strong><?= date('H:i:s', strtotime($log['olusturma_tarihi'])) ?></strong>
+                <?= date('d.m.Y', strtotime($log['created_at'])) ?><br>
+                <strong><?= date('H:i:s', strtotime($log['created_at'])) ?></strong>
                 <br>
                 <a href="?log_sil=<?= $log['id'] ?>&<?= http_build_query(array_diff_key($_GET, ['log_sil'=>''])) ?>"
                    onclick="event.stopPropagation(); return confirm('Bu log kaydını silmek istiyor musunuz?')"

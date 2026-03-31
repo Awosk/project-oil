@@ -22,7 +22,7 @@ if (!in_array($tema, ['light', 'dark'])) {
 }
 
 $ku = mevcutKullanici();
-$pdo->prepare("UPDATE kullanicilar SET tema = ? WHERE id = ?")
+$pdo->prepare("UPDATE users SET theme = ? WHERE id = ?")
     ->execute([$tema, $ku['id']]);
 
 $_SESSION['kullanici_tema'] = $tema;
