@@ -4,4 +4,4 @@ pages/management/db_backups/*
 cron/mail_worker.log
 dev_updater.php
 .dev_version
-context.md
+AGENTS.md
