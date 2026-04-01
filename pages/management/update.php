@@ -12,119 +12,20 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/log.php';
+require_once __DIR__ . '/../../classes/SistemGuncelleme.php';
 adminKontrol();
 
 $sayfa_basligi = 'Sistem Güncelleme';
 
-define('GITHUB_REPO',    'Awosk/project-oil');
-define('GITHUB_API',     'https://api.github.com/repos/' . GITHUB_REPO . '/releases/latest');
-define('ROOT_DIR',       dirname(__DIR__, 2));
-define('MIGRATIONS_DIR', ROOT_DIR . '/migrations');
-
-// Korunacak yol/dosyalar — güncelleme sırasında üzerine yazılmaz
-define('KORUNANLAR', [
-    '.env',
-    'pages/db_backups/',
-]);
-
-// ── Migration tablosu yoksa oluştur ──
-try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS `system_migrations` (
-        `versiyon` varchar(20) NOT NULL,
-        `uygulandi_tarih` datetime NOT NULL DEFAULT current_timestamp(),
-        PRIMARY KEY (`versiyon`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci");
-} catch (Exception $e) {}
-
-// ── Uygulanan migrationları çek ──
-function uygulanmisVersiyon($pdo): array {
-    try {
-        return $pdo->query("SELECT versiyon FROM system_migrations ORDER BY versiyon")
-                   ->fetchAll(PDO::FETCH_COLUMN);
-    } catch (Exception $e) { return []; }
-}
-
-// ── GitHub API isteği ──
-function githubApiIste(string $url): ?array {
-    $ctx = stream_context_create(['http' => [
-        'method'  => 'GET',
-        'header'  => "User-Agent: ProjectOil-Updater/1.0\r\n",
-        'timeout' => 10,
-    ]]);
-    $json = @file_get_contents($url, false, $ctx);
-    if (!$json) return null;
-    return json_decode($json, true);
-}
-
-// ── Versiyon karşılaştır ──
-function yeniVersionVar(string $lokal, string $uzak): bool {
-    return version_compare(ltrim($uzak, 'v'), ltrim($lokal, 'v'), '>');
-}
-
-// ── Koruma kontrolü ──
-function korunuyorMu(string $dosyaYolu): bool {
-    foreach (KORUNANLAR as $koruma) {
-        if (str_starts_with($dosyaYolu, $koruma)) return true;
-        if ($dosyaYolu === rtrim($koruma, '/')) return true;
-    }
-    return false;
-}
-
-// ── Klasörü recursive sil ──
-function klasorSil(string $dir): void {
-    if (!is_dir($dir)) return;
-    $items = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::CHILD_FIRST
-    );
-    foreach ($items as $item) {
-        $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
-    }
-    rmdir($dir);
-}
+// Migration tablosu yoksa oluştur
+SistemGuncelleme::hazirla($pdo);
 
 // ════════════════════════════════════════════════
 // AJAX: Sürüm kontrolü
 // ════════════════════════════════════════════════
 if (isset($_GET['kontrol'])) {
     header('Content-Type: application/json');
-    $data = githubApiIste(GITHUB_API);
-    if (!$data || empty($data['tag_name'])) {
-        echo json_encode(['ok' => false, 'mesaj' => 'GitHub API\'ye erişilemedi.']);
-        exit;
-    }
-    $uzak_tag     = $data['tag_name'];
-    $uzak_versiyon = ltrim($uzak_tag, 'v');
-    $yeni_var      = yeniVersionVar(SITE_VERSIYONU, $uzak_versiyon);
-
-    // Migration listesi
-    $assets = $data['assets'] ?? [];
-    $migration_listesi = [];
-    foreach ($assets as $asset) {
-        if (preg_match('/^(\d+\.\d+(?:\.\d+)?)\.sql$/', $asset['name'], $m)) {
-            $migration_listesi[] = $m[1];
-        }
-    }
-    usort($migration_listesi, 'version_compare');
-
-    // Zaten uygulanmış olanları filtrele
-    $uygulanmis   = uygulanmisVersiyon($pdo);
-    $bekleyen_sql = array_filter($migration_listesi, function($v) use ($uygulanmis) {
-        return !in_array($v, $uygulanmis) && version_compare($v, SITE_VERSIYONU, '>');
-    });
-
-    echo json_encode([
-        'ok'             => true,
-        'lokal'          => SITE_VERSIYONU,
-        'uzak'           => $uzak_versiyon,
-        'tag'            => $uzak_tag,
-        'yeni_var'       => $yeni_var,
-        'zipball_url'    => $data['zipball_url'] ?? '',
-        'aciklama'       => $data['body'] ?? '',
-        'yayin_tarihi'   => $data['published_at'] ?? '',
-        'bekleyen_sql'   => array_values($bekleyen_sql),
-        'assets'         => $assets,
-    ]);
+    echo json_encode(SistemGuncelleme::surumKontrol($pdo));
     exit;
 }
 
@@ -143,157 +44,9 @@ if (isset($_GET['guncelle']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode(['ok' => false, 'mesaj' => 'Geçersiz istek.']); exit;
     }
 
-    $log = [];
-    $tmp_zip  = sys_get_temp_dir() . '/project_oil_update_' . time() . '.zip';
-    $tmp_dir  = sys_get_temp_dir() . '/project_oil_extract_' . time();
-
-    try {
-        // ── 1. ZIP indir ──
-        $log[] = '📥 ZIP indiriliyor...';
-        $ctx = stream_context_create(['http' => [
-            'method'          => 'GET',
-            'header'          => "User-Agent: ProjectOil-Updater/1.0\r\n",
-            'timeout'         => 60,
-            'follow_location' => true,
-        ]]);
-        $zip_icerik = @file_get_contents($zipball_url, false, $ctx);
-        if (!$zip_icerik) throw new Exception('ZIP dosyası indirilemedi. allow_url_fopen aktif mi?');
-        file_put_contents($tmp_zip, $zip_icerik);
-        $log[] = '✓ ZIP indirildi (' . round(filesize($tmp_zip) / 1024) . ' KB)';
-
-        // ── 2. ZIP aç ──
-        $log[] = '📦 ZIP açılıyor...';
-        $zip = new ZipArchive();
-        if ($zip->open($tmp_zip) !== true) throw new Exception('ZIP açılamadı.');
-        mkdir($tmp_dir, 0755, true);
-        $zip->extractTo($tmp_dir);
-        $zip->close();
-        unlink($tmp_zip);
-
-        // GitHub zipball içinde Awosk-project-oil-XXXXX/ gibi bir klasör var
-        $alt_klasorler = glob($tmp_dir . '/*', GLOB_ONLYDIR);
-        if (empty($alt_klasorler)) throw new Exception('ZIP içeriği beklenmedik formatta.');
-        $kaynak_dir = $alt_klasorler[0];
-        $log[] = '✓ ZIP açıldı';
-
-        // ── 3. Dosyaları kopyala ──
-        $log[] = '🔄 Dosyalar güncelleniyor...';
-        $guncellenen = 0;
-        $atlanan     = 0;
-
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($kaynak_dir, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::SELF_FIRST
-        );
-
-        foreach ($iterator as $item) {
-            $goreceli = ltrim(str_replace($kaynak_dir, '', $item->getPathname()), '/\\');
-
-            // Koruma kontrolü
-            if (korunuyorMu($goreceli)) { $atlanan++; continue; }
-
-            $hedef = ROOT_DIR . '/' . $goreceli;
-
-            if ($item->isDir()) {
-                if (!is_dir($hedef)) mkdir($hedef, 0755, true);
-            } else {
-                $hedef_klasor = dirname($hedef);
-                if (!is_dir($hedef_klasor)) mkdir($hedef_klasor, 0755, true);
-                copy($item->getPathname(), $hedef);
-                $guncellenen++;
-            }
-        }
-        $log[] = "✓ $guncellenen dosya güncellendi, $atlanan dosya korundu";
-
-        // ── 4. SQL Migrationları uygula ──
-        $uygulanmis = uygulanmisVersiyon($pdo);
-        $migration_yapildi = 0;
-
-        // Asset'lerden .sql dosyalarını bul
-        $sql_assets = [];
-        foreach ($assets as $asset) {
-            if (preg_match('/^(\d+\.\d+(?:\.\d+)?)\.sql$/', $asset['name'], $m)) {
-                $versiyon = $m[1];
-                if (!in_array($versiyon, $uygulanmis) && version_compare($versiyon, SITE_VERSIYONU, '>')) {
-                    $sql_assets[$versiyon] = $asset['browser_download_url'];
-                }
-            }
-        }
-
-        // Ayrıca ZIP içindeki migrations/ klasörüne de bak
-        $zip_migrations_dir = $kaynak_dir . '/migrations';
-        if (is_dir($zip_migrations_dir)) {
-            foreach (glob($zip_migrations_dir . '/*.sql') as $sql_dosya) {
-                $dosya_adi = basename($sql_dosya);
-                if (preg_match('/^(\d+\.\d+(?:\.\d+)?)\.sql$/', $dosya_adi, $m)) {
-                    $versiyon = $m[1];
-                    if (!in_array($versiyon, $uygulanmis) && version_compare($versiyon, SITE_VERSIYONU, '>')) {
-                        $sql_assets[$versiyon] = 'local:' . $sql_dosya;
-                    }
-                }
-            }
-        }
-
-        uksort($sql_assets, 'version_compare');
-
-        foreach ($sql_assets as $versiyon => $kaynak) {
-            $log[] = "🗄️ Migration $versiyon uygulanıyor...";
-            try {
-                if (str_starts_with($kaynak, 'local:')) {
-                    $sql = file_get_contents(substr($kaynak, 6));
-                } else {
-                    $ctx2 = stream_context_create(['http' => [
-                        'method'  => 'GET',
-                        'header'  => "User-Agent: ProjectOil-Updater/1.0\r\n",
-                        'timeout' => 15,
-                    ]]);
-                    $sql = @file_get_contents($kaynak, false, $ctx2);
-                }
-
-                if (!$sql) throw new Exception("SQL dosyası okunamadı: $versiyon");
-
-                // Yorum satırlarını temizle, çalıştır
-                $satirlar = explode("\n", str_replace("\r\n", "\n", $sql));
-                $temiz = implode("\n", array_filter(
-                    array_map('trim', $satirlar),
-                    fn($s) => $s !== '' && !str_starts_with($s, '--')
-                ));
-                $ifadeler = array_filter(array_map('trim', explode(';', $temiz)), fn($s) => $s !== '');
-                foreach ($ifadeler as $ifade) {
-                    $pdo->exec($ifade);
-                }
-
-                // Migration kaydını ekle
-                $pdo->prepare("INSERT IGNORE INTO system_migrations (versiyon) VALUES (?)")->execute([$versiyon]);
-                $log[] = "✓ Migration $versiyon tamamlandı";
-                $migration_yapildi++;
-            } catch (Exception $me) {
-                $log[] = "⚠️ Migration $versiyon hatası: " . $me->getMessage();
-            }
-        }
-
-        if ($migration_yapildi === 0) $log[] = 'ℹ️ Uygulanacak SQL migrasyonu yok';
-
-        // ── 5. version.php güncelle ──
-        file_put_contents(ROOT_DIR . '/version.php', "<?php\n/*\n * Project Oil - Vehicle and Facility Industrial Oil Tracking System\n * Copyright (C) 2026 Awosk\n *\n * This program is free software: you can redistribute it and/or modify\n * it under the terms of the GNU General Public License as published by\n * the Free Software Foundation, either version 3 of the License, or\n * (at your option) any later version.\n */\n\ndefine('SITE_VERSIYONU', '$uzak_versiyon');\n");
-        $log[] = "✓ Versiyon $uzak_versiyon olarak güncellendi";
-
-        // ── 6. Temp temizle ──
-        klasorSil($tmp_dir);
-
-        // ── 7. Log yaz ──
-        logYaz($pdo, 'guncelle', 'sistem',
-            "Sistem güncellendi: v" . SITE_VERSIYONU . " → v$uzak_versiyon",
-            null, ['versiyon' => SITE_VERSIYONU], ['versiyon' => $uzak_versiyon], 'lite');
-
-        echo json_encode(['ok' => true, 'log' => $log, 'yeni_versiyon' => $uzak_versiyon]);
-
-    } catch (Exception $e) {
-        if (file_exists($tmp_zip)) @unlink($tmp_zip);
-        if (is_dir($tmp_dir))     klasorSil($tmp_dir);
-        $log[] = '❌ Hata: ' . $e->getMessage();
-        echo json_encode(['ok' => false, 'log' => $log, 'mesaj' => $e->getMessage()]);
-    }
+    $root_dir = dirname(__DIR__, 2);
+    $sonuc = SistemGuncelleme::uygula($pdo, $zipball_url, $uzak_versiyon, $assets, $root_dir);
+    echo json_encode($sonuc);
     exit;
 }
 
