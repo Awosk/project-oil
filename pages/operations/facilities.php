@@ -36,12 +36,12 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <!-- Arama -->
 <div class="card" style="padding:12px 16px; margin-bottom:14px;">
-    <form method="get" style="display:flex; gap:8px;">
-        <input type="text" name="q" value="<?= htmlspecialchars($arama) ?>" placeholder="🔍  Tesis veya adres ara..." style="flex:1;">
+    <div style="display:flex; gap:8px;">
+        <input type="text" id="liveArama" value="<?= htmlspecialchars($arama) ?>" placeholder="🔍  Tesis veya adres anında ara..." style="flex:1;" oninput="canliArama()">
         <?php if ($arama): ?>
         <a href="facilities.php" class="btn btn-secondary btn-sm">✕</a>
         <?php endif; ?>
-    </form>
+    </div>
 </div>
 
 <?php if (empty($tesisler)): ?>
@@ -67,5 +67,18 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endforeach; ?>
 </div>
 <?php endif; ?>
+<script>
+function canliArama() {
+    var val = document.getElementById('liveArama').value.toLowerCase();
+    var kartlar = document.querySelectorAll('.arac-card');
+    kartlar.forEach(function(kart) {
+        if (kart.textContent.toLowerCase().indexOf(val) > -1) {
+            kart.style.display = '';
+        } else {
+            kart.style.display = 'none';
+        }
+    });
+}
+</script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
