@@ -256,8 +256,8 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="kayit-list">
         <?php foreach ($kayitlar as $k):
             $detay_url = $k['kayit_turu'] === 'arac'
-                ? 'arac_detay.php?id='.$k['arac_id'].'#kayit-'.$k['id']
-                : 'tesis_detay.php?id='.$k['tesis_id'].'#kayit-'.$k['id'];
+                ? 'vehicle_detail.php?id='.$k['arac_id'].'#kayit-'.$k['id']
+                : 'facility_detail.php?id='.$k['tesis_id'].'#kayit-'.$k['id'];
         ?>
         <div class="islem-item" class="<?= $k['islendi'] ? 'islem-islendi' : '' ?>"
              onclick="window.location='<?= $detay_url ?>'" style="cursor:pointer;">
