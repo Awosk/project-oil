@@ -12,6 +12,7 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/mail.php';
+require_once __DIR__ . '/../../classes/MailKuyrugu.php';
 adminKontrol();
 
 $sayfa_basligi = 'Mail Kuyruğu';
@@ -20,8 +21,7 @@ $ku = mevcutKullanici();
 // ── TEK MAIL YENİDEN KUYRUĞA EKLE (retry) ──
 if (isset($_GET['retry'])) {
     $rid = (int)$_GET['retry'];
-    $pdo->prepare("UPDATE mail_queue SET status='pending', attempt_count=0, hata_mesaji=NULL WHERE id=? AND status IN ('failed','cancelled')")
-        ->execute([$rid]);
+    MailKuyrugu::tekYenidenDene($pdo, $rid);
     flash('Mail yeniden kuyruğa eklendi.');
     header('Location: mail_queue.php'); exit;
 }
@@ -29,7 +29,7 @@ if (isset($_GET['retry'])) {
 // ── TEK MAIL SİL ──
 if (isset($_GET['sil'])) {
     $sid = (int)$_GET['sil'];
-    $pdo->prepare("DELETE FROM mail_queue WHERE id=?")->execute([$sid]);
+    MailKuyrugu::tekSil($pdo, $sid);
     flash('Mail silindi.');
     header('Location: mail_queue.php'); exit;
 }
@@ -40,16 +40,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toplu_islem'])) {
     $islem = $_POST['toplu_islem'];
 
     if ($islem === 'temizle_hepsi') {
-        $silinen = $pdo->exec("DELETE FROM mail_queue WHERE status IN ('sent','failed','cancelled')");
+        $silinen = MailKuyrugu::temizleHepsi($pdo);
         flash($silinen . ' adet tamamlanmış mail silindi.');
     } elseif ($islem === 'retry_hepsi') {
-        $guncellenen = $pdo->exec("UPDATE mail_queue SET status='pending', attempt_count=0, hata_mesaji=NULL WHERE status IN ('failed','cancelled')");
+        $guncellenen = MailKuyrugu::retryHepsi($pdo);
         flash($guncellenen . ' adet mail yeniden kuyruğa alındı.');
     } elseif ($islem === 'iptal_pending') {
-        $guncellenen = $pdo->exec("UPDATE mail_queue SET status='cancelled' WHERE status='pending'");
+        $guncellenen = MailKuyrugu::iptalPending($pdo);
         flash($guncellenen . ' adet bekleyen mail iptal edildi.');
     } elseif ($islem === 'tum_temizle') {
-        $silinen = $pdo->exec("DELETE FROM mail_queue WHERE status NOT IN ('processing')");
+        $silinen = MailKuyrugu::tumTemizle($pdo);
         flash($silinen . ' adet mail silindi.');
     }
     header('Location: mail_queue.php'); exit;
@@ -76,40 +76,15 @@ if ($f_email) {
 $where_sql = implode(' AND ', $where);
 
 // Sayım & istatistik
-$stats = $pdo->query("
-    SELECT
-        COUNT(*) AS toplam,
-        SUM(CASE WHEN status='pending'    THEN 1 ELSE 0 END) AS pending,
-        SUM(CASE WHEN status='sent'       THEN 1 ELSE 0 END) AS sent,
-        SUM(CASE WHEN status='failed'     THEN 1 ELSE 0 END) AS failed,
-        SUM(CASE WHEN status='paused'     THEN 1 ELSE 0 END) AS paused,
-        SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END) AS processing,
-        SUM(CASE WHEN status='force'      THEN 1 ELSE 0 END) AS `force`,
-        SUM(CASE WHEN status='cancelled'  THEN 1 ELSE 0 END) AS cancelled
-    FROM mail_queue
-")->fetch();
+$stats = MailKuyrugu::istatistik($pdo);
 
-$toplam_kayit = (int)$pdo->prepare("SELECT COUNT(*) FROM mail_queue WHERE $where_sql")->execute($params) 
-    ? (int)$pdo->prepare("SELECT COUNT(*) FROM mail_queue WHERE $where_sql")->execute($params) 
-    : 0;
-
-// Düzgün sayım
-$cnt_stmt = $pdo->prepare("SELECT COUNT(*) FROM mail_queue WHERE $where_sql");
-$cnt_stmt->execute($params);
-$toplam_kayit = (int)$cnt_stmt->fetchColumn();
+$toplam_kayit = MailKuyrugu::sayfaSayisiGetir($pdo, $where_sql, $params);
 
 $toplam_sayfa = max(1, (int)ceil($toplam_kayit / $sayfa_basina));
 $f_sayfa = min($f_sayfa, $toplam_sayfa);
 $offset  = ($f_sayfa - 1) * $sayfa_basina;
 
-$mailler = $pdo->prepare("
-    SELECT * FROM mail_queue
-    WHERE $where_sql
-    ORDER BY created_at DESC
-    LIMIT $sayfa_basina OFFSET $offset
-");
-$mailler->execute($params);
-$mailler = $mailler->fetchAll();
+$mailler = MailKuyrugu::listeSayfalamali($pdo, $where_sql, $params, $sayfa_basina, $offset);
 
 // Cooldown durumu
 $cooldown_bitis   = sistemAyarGetir($pdo, 'mail_cooldown_bitis', '');

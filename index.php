@@ -23,23 +23,11 @@ if (isset($_GET['hata']) && $_GET['hata'] === 'yetki') {
     flash('Bu sayfaya erişim yetkiniz bulunmuyor.', 'danger');
 }
 
+require_once __DIR__ . '/classes/Arac.php';
+
 $sayfa_basligi = 'Araçlar';
 
-$araclar = $pdo->query("
-    SELECT a.*,
-           t.tur_adi,
-           t.oncelik,
-           k.ad_soyad AS olusturan_adi,
-           COUNT(CASE WHEN lk.aktif = 1 THEN 1 END) AS kayit_sayisi,
-           MAX(CASE WHEN lk.aktif = 1 THEN lk.tarih END) AS son_kayit
-    FROM vehicles a
-    LEFT JOIN vehicles_type t  ON a.arac_turu_id = t.id
-    LEFT JOIN users k       ON a.olusturan_id = k.id
-    LEFT JOIN records lk     ON lk.arac_id = a.id
-    WHERE a.aktif = 1
-    GROUP BY a.id
-    ORDER BY t.oncelik DESC, t.tur_adi, a.plaka
-")->fetchAll();
+$araclar = Arac::tumAraclar($pdo);
 
 $arama = trim($_GET['q'] ?? '');
 if ($arama) {

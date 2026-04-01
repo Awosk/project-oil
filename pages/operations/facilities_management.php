@@ -12,6 +12,8 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/log.php';
+require_once __DIR__ . '/../../classes/Tesis.php';
+
 girisKontrol();
 
 $sayfa_basligi = 'Tesis Yönetimi';
@@ -21,19 +23,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     csrfDogrula();
     $firma = trim($_POST['firma_adi']);
     $adres = trim($_POST['firma_adresi']);
+    
     if ($firma && $adres) {
-        $mevcut = $pdo->prepare("SELECT * FROM facilities WHERE firma_adi=?");
-        $mevcut->execute([$firma]); $mevcut = $mevcut->fetch();
+        $mevcut = Tesis::bulAd($pdo, $firma);
 
         if ($mevcut && $mevcut['aktif'] == 0) {
-            $pdo->prepare("UPDATE facilities SET firma_adresi=?, olusturan_id=?, aktif=1 WHERE id=?")->execute([$adres, $ku['id'], $mevcut['id']]);
+            Tesis::reaktifEt($pdo, $mevcut['id'], $adres, $ku['id']);
             logYaz($pdo,'ekle','tesis','Silinen tesis reaktif edildi: '.$firma, $mevcut['id'], null, ['firma'=>$firma,'adres'=>$adres], 'lite');
             flash('Daha önce silinmiş tesis tekrar aktif edildi.');
         } elseif ($mevcut && $mevcut['aktif'] == 1) {
             flash('Bu tesis adı zaten kayıtlı.', 'danger');
         } else {
-            $pdo->prepare("INSERT INTO facilities (firma_adi, firma_adresi, olusturan_id) VALUES (?,?,?)")->execute([$firma, $adres, $ku['id']]);
-            $yeni_id = $pdo->lastInsertId();
+            $yeni_id = Tesis::ekle($pdo, $firma, $adres, $ku['id']);
             logYaz($pdo,'ekle','tesis','Tesis eklendi: '.$firma, $yeni_id, null, ['firma'=>$firma,'adres'=>$adres], 'lite');
             flash('Tesis eklendi.');
         }
@@ -43,8 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
 
 if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
-    $sr = $pdo->prepare('SELECT * FROM facilities WHERE id=?'); $sr->execute([$sil_id]); $sr = $sr->fetch();
-    $pdo->prepare("UPDATE facilities SET aktif=0 WHERE id=?")->execute([$sil_id]);
+    $sr = Tesis::bulId($pdo, $sil_id);
+    Tesis::sil($pdo, $sil_id);
     if ($sr) logYaz($pdo,'sil','tesis','Tesis silindi: '.$sr['firma_adi'], $sil_id, $sr, null, 'lite');
     flash('Tesis silindi.');
     header('Location: facilities_management.php'); exit;
@@ -55,14 +56,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
     $did   = (int)$_POST['duzenle_id'];
     $firma = trim($_POST['duzenle_firma']);
     $adres = trim($_POST['duzenle_adres']);
+    
     if ($did && $firma && $adres) {
-        $sr = $pdo->prepare('SELECT * FROM facilities WHERE id=?'); $sr->execute([$did]); $sr = $sr->fetch();
-        $cakisma = $pdo->prepare("SELECT id FROM facilities WHERE firma_adi=? AND id!=? AND aktif=1");
-        $cakisma->execute([$firma, $did]);
-        if ($cakisma->fetch()) {
+        $sr = Tesis::bulId($pdo, $did);
+        $cakisma = Tesis::adCakismaVarMi($pdo, $firma, $did);
+        
+        if ($cakisma) {
             flash('Bu tesis adı başka bir kayıtta kullanılıyor.', 'danger');
         } else {
-            $pdo->prepare("UPDATE facilities SET firma_adi=?, firma_adresi=? WHERE id=?")->execute([$firma, $adres, $did]);
+            Tesis::guncelle($pdo, $did, $firma, $adres);
             logYaz($pdo,'guncelle','tesis','Tesis güncellendi: '.$firma, $did,
                 ['firma_adi'=>$sr['firma_adi'],'firma_adresi'=>$sr['firma_adresi']],
                 ['firma_adi'=>$firma,'firma_adresi'=>$adres], 'lite');
@@ -72,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['duzenle'])) {
     header('Location: facilities_management.php'); exit;
 }
 
-$tesisler = $pdo->query("SELECT t.*, k.ad_soyad FROM facilities t LEFT JOIN users k ON t.olusturan_id=k.id WHERE t.aktif=1 ORDER BY t.firma_adi")->fetchAll();
+$tesisler = Tesis::listeleYonetim($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>

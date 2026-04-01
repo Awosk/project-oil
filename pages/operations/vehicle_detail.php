@@ -12,21 +12,18 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/log.php';
+require_once __DIR__ . '/../../classes/Arac.php';
+require_once __DIR__ . '/../../classes/Urun.php';
+require_once __DIR__ . '/../../classes/Islem.php';
+
 girisKontrol();
 
 $id = (int)($_GET['id'] ?? 0);
-if (!$id) { header('Location: ../index.php'); exit; }
+if (!$id) { header('Location: ../../index.php'); exit; }
 $ku = mevcutKullanici();
 
-$arac = $pdo->prepare("
-    SELECT a.*, t.tur_adi
-    FROM vehicles a
-    LEFT JOIN vehicles_type t ON a.arac_turu_id = t.id
-    WHERE a.id=? AND a.aktif=1
-");
-$arac->execute([$id]);
-$arac = $arac->fetch();
-if (!$arac) { flash('Araç bulunamadı.', 'danger'); header('Location: ../index.php'); exit; }
+$arac = Arac::aktifDetayliBulId($pdo, $id);
+if (!$arac) { flash('Araç bulunamadı.', 'danger'); header('Location: ../../index.php'); exit; }
 
 $sayfa_basligi = $arac['plaka'];
 
@@ -40,14 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['yag_ekle'])) {
     $mevcut_km  = ($yag_bakimi && !empty($_POST['mevcut_km'])) ? (int)$_POST['mevcut_km'] : null;
 
     if ($urun_id && $miktar > 0 && $tarih) {
-        $stmt = $pdo->prepare("INSERT INTO records (kayit_turu,arac_id,urun_id,miktar,tarih,aciklama,yag_bakimi,mevcut_km,olusturan_id) VALUES ('arac',?,?,?,?,?,?,?,?)");
-        $stmt->execute([$id,$urun_id,$miktar,$tarih,$aciklama?:null,$yag_bakimi,$mevcut_km,$ku['id']]);
-        $yeni_id = $pdo->lastInsertId();
-        $ul = $pdo->prepare('SELECT urun_kodu,urun_adi FROM products WHERE id=?');
-        $ul->execute([$urun_id]); $ul = $ul->fetch();
+        $yeni_id = Islem::aracYagEkle($pdo, $id, $urun_id, $miktar, $tarih, $aciklama, $yag_bakimi, $mevcut_km, $ku['id']);
+        $ul = Urun::bulId($pdo, $urun_id);
+        
         $log_msg = $arac['plaka'].' aracına yağ eklendi: '.($ul['urun_kodu']??'').' '.($ul['urun_adi']??'').', '.$miktar.'L';
         if ($yag_bakimi) $log_msg .= ' [YAĞ BAKIMI - '.($mevcut_km ? number_format($mevcut_km).' KM' : 'KM girilmedi').']';
         if ($aciklama)   $log_msg .= '. Açıklama: '.$aciklama;
+        
         logYaz($pdo,'ekle','arac_kayit',$log_msg,$yeni_id,null,['plaka'=>$arac['plaka'],'urun_id'=>$urun_id,'miktar'=>$miktar,'tarih'=>$tarih,'yag_bakimi'=>$yag_bakimi,'mevcut_km'=>$mevcut_km,'aciklama'=>$aciklama],'lite');
         flash('Yağ kaydı eklendi.');
     } else {
@@ -56,26 +52,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['yag_ekle'])) {
     header('Location: vehicle_detail.php?id='.$id); exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['kayit_guncelle'])) {
     csrfDogrula();
     $kayit_id  = (int)$_POST['kayit_id'];
-    $yeni_aciklama = trim($_POST['aciklama_yeni'] ?? '');
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,u.urun_adi FROM records lk JOIN products u ON lk.urun_id=u.id WHERE lk.id=? AND lk.arac_id=? AND lk.aktif=1');
-    $sr->execute([$kayit_id, $id]); $sr = $sr->fetch();
-    if ($sr) {
-        $pdo->prepare("UPDATE records SET aciklama=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
-        logYaz($pdo,'guncelle','arac_kayit', $arac['plaka'].' Plakalı Aracın '.$sr['urun_kodu'].' kaydının açıklaması güncellendi', $kayit_id, ['aciklama'=>$sr['aciklama']], ['aciklama'=>$yeni_aciklama], 'lite');
-        flash('Açıklama güncellendi.');
+    $urun_id   = (int)$_POST['guncelle_urun_id'];
+    $miktar    = (float)str_replace(',', '.', $_POST['guncelle_miktar']);
+    $tarih     = $_POST['guncelle_tarih'];
+    $aciklama  = trim($_POST['guncelle_aciklama'] ?? '');
+    $yag_bakimi = isset($_POST['guncelle_yag_bakimi']) ? 1 : 0;
+    $mevcut_km  = ($yag_bakimi && !empty($_POST['guncelle_mevcut_km'])) ? (int)$_POST['guncelle_mevcut_km'] : null;
+    
+    if ($kayit_id && $urun_id && $miktar > 0 && $tarih) {
+        $sr = Islem::aracKayitBul($pdo, $kayit_id, $id);
+        if ($sr) {
+            Islem::kayitGuncelle($pdo, $kayit_id, $urun_id, $miktar, $tarih, $aciklama, $yag_bakimi, $mevcut_km);
+            logYaz($pdo,'guncelle','arac_kayit', $arac['plaka'].' Plakalı Aracın yağ kaydı güncellendi', $kayit_id, 
+                   ['urun_id'=>$sr['urun_id'], 'miktar'=>$sr['miktar'], 'tarih'=>$sr['tarih'], 'aciklama'=>$sr['aciklama'], 'yag_bakimi'=>$sr['yag_bakimi'], 'mevcut_km'=>$sr['mevcut_km']], 
+                   ['urun_id'=>$urun_id, 'miktar'=>$miktar, 'tarih'=>$tarih, 'aciklama'=>$aciklama, 'yag_bakimi'=>$yag_bakimi, 'mevcut_km'=>$mevcut_km], 'lite');
+            flash('Kayıt güncellendi.');
+        }
+    } else {
+        flash('Ürün, miktar ve tarih zorunludur.', 'danger');
     }
     header('Location: vehicle_detail.php?id='.$id); exit;
 }
 
 if (isset($_GET['yag_sil'])) {
     $sil_id = (int)$_GET['yag_sil'];
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,u.urun_adi FROM records lk JOIN products u ON lk.urun_id=u.id WHERE lk.id=? AND lk.arac_id=?');
-    $sr->execute([$sil_id,$id]); $sr = $sr->fetch();
+    $sr = Islem::aracKayitSilBul($pdo, $sil_id, $id);
+    
     if ($sr) {
-        $pdo->prepare("UPDATE records SET aktif=0 WHERE id=? AND arac_id=?")->execute([$sil_id,$id]);
+        Islem::kayitSil($pdo, $sil_id, $id);
         $log_msg = $arac['plaka'].' aracından yağ kaydı silindi: '.$sr['urun_kodu'].' '.$sr['urun_adi'].', '.$sr['miktar'].'L';
         if ($sr['yag_bakimi']) $log_msg .= ' [YAĞ BAKIMI]';
         if ($sr['aciklama'])   $log_msg .= '. Açıklama: '.$sr['aciklama'];
@@ -85,18 +92,8 @@ if (isset($_GET['yag_sil'])) {
     header('Location: vehicle_detail.php?id='.$id); exit;
 }
 
-$urunler = $pdo->query("SELECT * FROM products WHERE aktif=1 ORDER BY urun_adi")->fetchAll();
-
-$yag_kayitlari = $pdo->prepare("
-    SELECT lk.*,u.urun_adi,u.urun_kodu,k.ad_soyad
-    FROM records lk
-    JOIN products u ON lk.urun_id=u.id
-    LEFT JOIN users k ON lk.olusturan_id=k.id
-    WHERE lk.arac_id=? AND lk.aktif=1
-    ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
-");
-$yag_kayitlari->execute([$id]);
-$yag_kayitlari = $yag_kayitlari->fetchAll();
+$urunler = Urun::tumUrunler($pdo);
+$yag_kayitlari = Islem::aracKayitlari($pdo, $id);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -215,7 +212,7 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
             <div class="kayit-miktar"><?= formatliMiktar($k['miktar']) ?></div>
             <button class="btn btn-sm btn-secondary" style="flex-shrink:0;font-size:11px;padding:4px 8px;"
-                onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>')" title="Açıklama düzenle">✏️</button>
+                onclick="kayitDuzenleModal(<?= $k['id'] ?>, <?= $k['urun_id'] ?>, '<?= $k['miktar'] ?>', '<?= $k['tarih'] ?>', '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>', <?= $k['yag_bakimi'] ? 'true' : 'false' ?>, '<?= $k['mevcut_km'] ?? '' ?>')" title="Kayıt düzenle">✏️ Düzenle</button>
             <button class="kayit-sil" onclick="if(confirm('Bu kaydı silmek istiyor musunuz?')) location.href='vehicle_detail.php?id=<?= $id ?>&yag_sil=<?= $k['id'] ?>'" title="Sil">🗑️</button>
         </div>
         <?php endforeach; ?>
@@ -223,20 +220,48 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endif; ?>
 </div>
 
-<!-- Açıklama Modal -->
-<div id="aciklamaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
-    <div class="modal-box" style="max-width:400px;">
-        <div style="font-weight:700;font-size:16px;margin-bottom:16px;">✏️ Açıklama Düzenle</div>
+<!-- Kayıt Düzenleme Modal -->
+<div id="kayitDuzenleModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+    <div class="modal-box" style="max-width:400px;width:100%;margin:20px;">
+        <div style="font-weight:700;font-size:16px;margin-bottom:16px;">✏️ Kayıt Düzenle</div>
         <form method="post">
             <?= csrfInput() ?>
-            <input type="hidden" name="kayit_id" id="aciklama_kayit_id">
+            <input type="hidden" name="kayit_id" id="duzenle_kayit_id">
             <div class="form-group">
-                <label>Açıklama <span style="font-weight:400;color:var(--muted);font-size:12px;">(boş bırakılırsa silinir)</span></label>
-                <input type="text" name="aciklama_yeni" id="aciklama_input" placeholder="Açıklama girin..." maxlength="255">
+                <label>Ürün *</label>
+                <select name="guncelle_urun_id" id="guncelle_urun_id" required>
+                    <?php foreach ($urunler as $u): ?>
+                    <option value="<?= $u['id'] ?>"><?= htmlspecialchars($u['urun_kodu'].' - '.$u['urun_adi']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="display:flex;gap:12px;">
+                <div class="form-group" style="flex:1;">
+                    <label>Miktar (Litre) *</label>
+                    <input type="number" name="guncelle_miktar" id="guncelle_miktar" required min="0.01" step="0.01">
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label>Tarih *</label>
+                    <input type="date" name="guncelle_tarih" id="guncelle_tarih" required>
+                </div>
+            </div>
+            <div class="form-group full" style="margin-top:4px;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;text-transform:none;font-size:14px;font-weight:600;color:var(--text);background:var(--warning-l);padding:12px 14px;border-radius:var(--r-sm);border:1.5px solid var(--warning);">
+                    <input type="checkbox" name="guncelle_yag_bakimi" id="guncelle_yag_bakimi" value="1" onchange="guncelleKmToggle()" style="width:20px;height:20px;accent-color:var(--warning);cursor:pointer;flex-shrink:0;">
+                    🔧 Bu işlem yağ & filtre bakımıdır
+                </label>
+            </div>
+            <div class="form-group" id="guncelle_km_grup" style="display:none;margin-top:4px;">
+                <label>Mevcut KM</label>
+                <input type="number" name="guncelle_mevcut_km" id="guncelle_mevcut_km" min="0" placeholder="Örn: 125000">
+            </div>
+            <div class="form-group" style="margin-top:4px;">
+                <label>Açıklama</label>
+                <input type="text" name="guncelle_aciklama" id="guncelle_aciklama" maxlength="255">
             </div>
             <div style="display:flex;gap:8px;margin-top:16px;">
-                <button type="submit" name="aciklama_guncelle" class="btn btn-primary" style="flex:1;">💾 Kaydet</button>
-                <button type="button" class="btn btn-secondary" onclick="aciklamaModalKapat()">İptal</button>
+                <button type="submit" name="kayit_guncelle" class="btn btn-primary" style="flex:1;">💾 Kaydet</button>
+                <button type="button" class="btn btn-secondary" onclick="kayitDuzenleModalKapat()">İptal</button>
             </div>
         </form>
     </div>
@@ -248,18 +273,28 @@ function kmToggle() {
     var grp = document.getElementById('km_grup');
     grp.style.display = cb.checked ? '' : 'none';
 }
-function aciklamaModal(id, mevcutAciklama) {
-    document.getElementById('aciklama_kayit_id').value = id;
-    document.getElementById('aciklama_input').value = mevcutAciklama;
-    var m = document.getElementById('aciklamaModal');
+function guncelleKmToggle() {
+    var cb  = document.getElementById('guncelle_yag_bakimi');
+    var grp = document.getElementById('guncelle_km_grup');
+    grp.style.display = cb.checked ? '' : 'none';
+}
+function kayitDuzenleModal(id, urun_id, miktar, tarih, aciklama, yag_bakimi, mevcut_km) {
+    document.getElementById('duzenle_kayit_id').value = id;
+    document.getElementById('guncelle_urun_id').value = urun_id;
+    document.getElementById('guncelle_miktar').value = miktar;
+    document.getElementById('guncelle_tarih').value = tarih;
+    document.getElementById('guncelle_aciklama').value = aciklama;
+    document.getElementById('guncelle_yag_bakimi').checked = yag_bakimi;
+    document.getElementById('guncelle_mevcut_km').value = mevcut_km;
+    guncelleKmToggle();
+    var m = document.getElementById('kayitDuzenleModal');
     m.style.display = 'flex';
-    setTimeout(() => document.getElementById('aciklama_input').focus(), 50);
 }
-function aciklamaModalKapat() {
-    document.getElementById('aciklamaModal').style.display = 'none';
+function kayitDuzenleModalKapat() {
+    document.getElementById('kayitDuzenleModal').style.display = 'none';
 }
-document.getElementById('aciklamaModal').addEventListener('click', function(e) {
-    if (e.target === this) aciklamaModalKapat();
+document.getElementById('kayitDuzenleModal').addEventListener('click', function(e) {
+    if (e.target === this) kayitDuzenleModalKapat();
 });
 (function() {
     var hash = window.location.hash;

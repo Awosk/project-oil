@@ -12,15 +12,17 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/log.php';
+require_once __DIR__ . '/../../classes/Tesis.php';
+require_once __DIR__ . '/../../classes/Urun.php';
+require_once __DIR__ . '/../../classes/Islem.php';
+
 girisKontrol();
 
 $id = (int)($_GET['id'] ?? 0);
 if (!$id) { header('Location: facilities.php'); exit; }
 $ku = mevcutKullanici();
 
-$tesis = $pdo->prepare("SELECT * FROM facilities WHERE id=? AND aktif=1");
-$tesis->execute([$id]);
-$tesis = $tesis->fetch();
+$tesis = Tesis::aktifBulId($pdo, $id);
 if (!$tesis) { flash('Tesis bulunamadı.', 'danger'); header('Location: facilities.php'); exit; }
 
 $sayfa_basligi = $tesis['firma_adi'];
@@ -33,13 +35,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     $aciklama = trim($_POST['aciklama'] ?? '');
 
     if ($urun_id && $miktar > 0 && $tarih) {
-        $stmt = $pdo->prepare("
-            INSERT INTO records (kayit_turu, tesis_id, urun_id, miktar, tarih, aciklama, olusturan_id)
-            VALUES ('tesis', ?, ?, ?, ?, ?, ?)
-        ");
-        $stmt->execute([$id, $urun_id, $miktar, $tarih, $aciklama ?: null, $ku['id']]);
-        $yeni_id = $pdo->lastInsertId();
-        $urun_adi_log = $pdo->prepare('SELECT urun_kodu, urun_adi FROM products WHERE id=?'); $urun_adi_log->execute([$urun_id]); $urun_adi_log = $urun_adi_log->fetch();
+        $yeni_id = Islem::tesisYagEkle($pdo, $id, $urun_id, $miktar, $tarih, $aciklama, $ku['id']);
+        $urun_adi_log = Urun::bulId($pdo, $urun_id);
+        
         logYaz($pdo,'ekle','tesis_kayit',
             $tesis['firma_adi'].' tesisine yağ eklendi: '.($urun_adi_log['urun_kodu']??'').' - '.($urun_adi_log['urun_adi']??'').', '.$miktar.'L, tarih:'.$tarih.'. Açıklama: '.($aciklama ?? 'Yok'),
             $yeni_id, null,
@@ -52,43 +50,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ekle'])) {
     header('Location: facility_detail.php?id=' . $id); exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['kayit_guncelle'])) {
     csrfDogrula();
-    $kayit_id      = (int)$_POST['kayit_id'];
-    $yeni_aciklama = trim($_POST['aciklama_yeni'] ?? '');
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,u.urun_adi FROM records lk JOIN products u ON lk.urun_id=u.id WHERE lk.id=? AND lk.tesis_id=? AND lk.aktif=1');
-    $sr->execute([$kayit_id, $id]); $sr = $sr->fetch();
-    if ($sr) {
-        $pdo->prepare("UPDATE records SET aciklama=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
-        logYaz($pdo,'guncelle','tesis_kayit', $tesis['firma_adi'].' Adlı Firmanın '.$sr['urun_kodu'].' kaydının açıklaması güncellendi', $kayit_id, ['aciklama'=>$sr['aciklama']], ['aciklama'=>$yeni_aciklama], 'lite');
-        flash('Açıklama güncellendi.');
+    $kayit_id  = (int)$_POST['kayit_id'];
+    $urun_id   = (int)$_POST['guncelle_urun_id'];
+    $miktar    = (float)str_replace(',', '.', $_POST['guncelle_miktar']);
+    $tarih     = $_POST['guncelle_tarih'];
+    $aciklama  = trim($_POST['guncelle_aciklama'] ?? '');
+    
+    if ($kayit_id && $urun_id && $miktar > 0 && $tarih) {
+        $sr = Islem::tesisKayitBul($pdo, $kayit_id, $id);
+        if ($sr) {
+            Islem::kayitGuncelle($pdo, $kayit_id, $urun_id, $miktar, $tarih, $aciklama);
+            logYaz($pdo,'guncelle','tesis_kayit', $tesis['firma_adi'].' tesisinin yağ kaydı güncellendi', $kayit_id, 
+                   ['urun_id'=>$sr['urun_id'], 'miktar'=>$sr['miktar'], 'tarih'=>$sr['tarih'], 'aciklama'=>$sr['aciklama']], 
+                   ['urun_id'=>$urun_id, 'miktar'=>$miktar, 'tarih'=>$tarih, 'aciklama'=>$aciklama], 'lite');
+            flash('Kayıt güncellendi.');
+        }
+    } else {
+        flash('Ürün, miktar ve tarih zorunludur.', 'danger');
     }
     header('Location: facility_detail.php?id='.$id); exit;
 }
 
 if (isset($_GET['sil'])) {
     $sil_id = (int)$_GET['sil'];
-    $sr = $pdo->prepare('SELECT lk.*, u.urun_kodu, u.urun_adi FROM records lk JOIN products u ON lk.urun_id=u.id WHERE lk.id=? AND lk.tesis_id=?');
-    $sr->execute([$sil_id, $id]); $sr = $sr->fetch();
-    $pdo->prepare("UPDATE records SET aktif=0 WHERE id=? AND tesis_id=?")->execute([$sil_id, $id]);
-    if ($sr) logYaz($pdo,'sil','tesis_kayit',
-        $tesis['firma_adi'].' tesisinden yağ kaydı silindi: '.$sr['urun_kodu'].' - '.$sr['urun_adi'].', '.$sr['miktar'].'L, tarih:'.$sr['tarih'].'. Açıklama: '.($sr['aciklama'] ?? 'Yok'),
-        $sil_id, $sr, null, 'lite');
+    $sr = Islem::tesisKayitSilBul($pdo, $sil_id, $id);
+    
+    if ($sr) {
+        Islem::tesisKayitSil($pdo, $sil_id, $id);
+        logYaz($pdo,'sil','tesis_kayit',
+            $tesis['firma_adi'].' tesisinden yağ kaydı silindi: '.$sr['urun_kodu'].' - '.$sr['urun_adi'].', '.$sr['miktar'].'L, tarih:'.$sr['tarih'].'. Açıklama: '.($sr['aciklama'] ?? 'Yok'),
+            $sil_id, $sr, null, 'lite');
+    }
     flash('Kayıt silindi.');
     header('Location: facility_detail.php?id=' . $id); exit;
 }
 
-$urunler  = $pdo->query("SELECT * FROM products WHERE aktif=1 ORDER BY urun_adi")->fetchAll();
-$kayitlar = $pdo->prepare("
-    SELECT lk.*, u.urun_adi, u.urun_kodu, k.ad_soyad
-    FROM records lk
-    JOIN products u ON lk.urun_id = u.id
-    LEFT JOIN users k ON lk.olusturan_id = k.id
-    WHERE lk.tesis_id = ? AND lk.aktif = 1
-    ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
-");
-$kayitlar->execute([$id]);
-$kayitlar = $kayitlar->fetchAll();
+$urunler  = Urun::tumUrunler($pdo);
+$kayitlar = Islem::tesisKayitlari($pdo, $id);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -166,46 +166,66 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
             <div class="kayit-miktar"><?= formatliMiktar($k['miktar']) ?></div>
             <button class="btn btn-sm btn-secondary" style="flex-shrink:0;font-size:11px;padding:4px 8px;"
-                onclick="aciklamaModal(<?= $k['id'] ?>, '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>')" title="Açıklama düzenle">✏️</button>
-            <button class="kayit-sil" onclick="if(confirm('Bu kaydı silmek istiyor musunuz?')) location.href='tesis_detay.php?id=<?= $id ?>&sil=<?= $k['id'] ?>'" title="Sil">🗑️</button>
+                onclick="kayitDuzenleModal(<?= $k['id'] ?>, <?= $k['urun_id'] ?>, '<?= $k['miktar'] ?>', '<?= $k['tarih'] ?>', '<?= htmlspecialchars($k['aciklama'] ?? '', ENT_QUOTES) ?>')" title="Kayıt düzenle">✏️ Düzenle</button>
+            <button class="kayit-sil" onclick="if(confirm('Bu kaydı silmek istiyor musunuz?')) location.href='facility_detail.php?id=<?= $id ?>&sil=<?= $k['id'] ?>'" title="Sil">🗑️</button>
         </div>
         <?php endforeach; ?>
     </div>
     <?php endif; ?>
 </div>
 
-<!-- Açıklama Modal -->
-<div id="aciklamaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
-    <div class="modal-box" style="max-width:400px;">
-        <div style="font-weight:700;font-size:16px;margin-bottom:16px;">✏️ Açıklama Düzenle</div>
+<!-- Kayıt Düzenleme Modal -->
+<div id="kayitDuzenleModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+    <div class="modal-box" style="max-width:400px;width:100%;margin:20px;">
+        <div style="font-weight:700;font-size:16px;margin-bottom:16px;">✏️ Kayıt Düzenle</div>
         <form method="post">
             <?= csrfInput() ?>
-            <input type="hidden" name="kayit_id" id="aciklama_kayit_id">
+            <input type="hidden" name="kayit_id" id="duzenle_kayit_id">
             <div class="form-group">
-                <label>Açıklama <span style="font-weight:400;color:var(--muted);font-size:12px;">(boş bırakılırsa silinir)</span></label>
-                <input type="text" name="aciklama_yeni" id="aciklama_input" placeholder="Açıklama girin..." maxlength="255">
+                <label>Ürün *</label>
+                <select name="guncelle_urun_id" id="guncelle_urun_id" required>
+                    <?php foreach ($urunler as $u): ?>
+                    <option value="<?= $u['id'] ?>"><?= htmlspecialchars($u['urun_kodu'].' - '.$u['urun_adi']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="display:flex;gap:12px;">
+                <div class="form-group" style="flex:1;">
+                    <label>Miktar (Litre) *</label>
+                    <input type="number" name="guncelle_miktar" id="guncelle_miktar" required min="0.01" step="0.01">
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label>Tarih *</label>
+                    <input type="date" name="guncelle_tarih" id="guncelle_tarih" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Açıklama</label>
+                <input type="text" name="guncelle_aciklama" id="guncelle_aciklama" maxlength="255">
             </div>
             <div style="display:flex;gap:8px;margin-top:16px;">
-                <button type="submit" name="aciklama_guncelle" class="btn btn-primary" style="flex:1;">💾 Kaydet</button>
-                <button type="button" class="btn btn-secondary" onclick="aciklamaModalKapat()">İptal</button>
+                <button type="submit" name="kayit_guncelle" class="btn btn-primary" style="flex:1;">💾 Kaydet</button>
+                <button type="button" class="btn btn-secondary" onclick="kayitDuzenleModalKapat()">İptal</button>
             </div>
         </form>
     </div>
 </div>
 
 <script>
-function aciklamaModal(id, mevcutAciklama) {
-    document.getElementById('aciklama_kayit_id').value = id;
-    document.getElementById('aciklama_input').value = mevcutAciklama;
-    var m = document.getElementById('aciklamaModal');
+function kayitDuzenleModal(id, urun_id, miktar, tarih, aciklama) {
+    document.getElementById('duzenle_kayit_id').value = id;
+    document.getElementById('guncelle_urun_id').value = urun_id;
+    document.getElementById('guncelle_miktar').value = miktar;
+    document.getElementById('guncelle_tarih').value = tarih;
+    document.getElementById('guncelle_aciklama').value = aciklama;
+    var m = document.getElementById('kayitDuzenleModal');
     m.style.display = 'flex';
-    setTimeout(() => document.getElementById('aciklama_input').focus(), 50);
 }
-function aciklamaModalKapat() {
-    document.getElementById('aciklamaModal').style.display = 'none';
+function kayitDuzenleModalKapat() {
+    document.getElementById('kayitDuzenleModal').style.display = 'none';
 }
-document.getElementById('aciklamaModal').addEventListener('click', function(e) {
-    if (e.target === this) aciklamaModalKapat();
+document.getElementById('kayitDuzenleModal').addEventListener('click', function(e) {
+    if (e.target === this) kayitDuzenleModalKapat();
 });
 
 (function() {

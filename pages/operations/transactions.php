@@ -12,6 +12,11 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/log.php';
+require_once __DIR__ . '/../../classes/Islem.php';
+require_once __DIR__ . '/../../classes/Arac.php';
+require_once __DIR__ . '/../../classes/Tesis.php';
+require_once __DIR__ . '/../../classes/Urun.php';
+
 girisKontrol();
 
 $sayfa_basligi = 'İşlemler';
@@ -20,10 +25,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
     csrfDogrula();
     $kayit_id      = (int)$_POST['kayit_id'];
     $yeni_aciklama = trim($_POST['aciklama_yeni'] ?? '');
-    $sr = $pdo->prepare('SELECT lk.*,u.urun_kodu,a.plaka,t.firma_adi FROM records lk JOIN products u ON lk.urun_id=u.id LEFT JOIN vehicles a ON lk.arac_id=a.id LEFT JOIN facilities t ON lk.tesis_id=t.id WHERE lk.id=? AND lk.aktif=1');
-    $sr->execute([$kayit_id]); $sr = $sr->fetch();
+    
+    $sr = Islem::aktifGenelKayitBul($pdo, $kayit_id);
     if ($sr) {
-        $pdo->prepare("UPDATE records SET aciklama=? WHERE id=?")->execute([$yeni_aciklama ?: null, $kayit_id]);
+        Islem::aciklamaGuncelle($pdo, $kayit_id, $yeni_aciklama);
         $hedef = $sr['plaka'] ?? $sr['firma_adi'] ?? '?';
         logYaz($pdo,'guncelle','arac_kayit', $hedef.' kaydına açıklama güncellendi: '.$sr['urun_kodu'], $kayit_id, ['aciklama'=>$sr['aciklama']], ['aciklama'=>$yeni_aciklama], 'lite');
         flash('Açıklama güncellendi.');
@@ -34,22 +39,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['aciklama_guncelle']))
 
 if (isset($_GET['islendi_toggle'])) {
     $toggle_id = (int)$_GET['islendi_toggle'];
-    $mevcut = $pdo->prepare("SELECT islendi FROM records WHERE id=?");
-    $mevcut->execute([$toggle_id]); $mevcut_val = $mevcut->fetchColumn();
+    $mevcut_val = Islem::islendiMi($pdo, $toggle_id);
     $ku = mevcutKullanici();
+    
     if ($mevcut_val == 0) {
-        $pdo->prepare("UPDATE records SET islendi=1, islendi_tarih=NOW(), islendi_kullanici_id=? WHERE id=?")
-            ->execute([$ku['id'], $toggle_id]);
-        $kd = $pdo->prepare("SELECT lk.*, u.urun_kodu, u.urun_adi, a.plaka, t.firma_adi FROM records lk JOIN products u ON lk.urun_id=u.id LEFT JOIN vehicles a ON lk.arac_id=a.id LEFT JOIN facilities t ON lk.tesis_id=t.id WHERE lk.id=?");
-        $kd->execute([$toggle_id]); $kd = $kd->fetch();
+        Islem::islendiYap($pdo, $toggle_id, $ku['id']);
+        $kd = Islem::genelKayitBul($pdo, $toggle_id);
         $hedef = $kd ? ($kd['plaka'] ?? $kd['firma_adi'] ?? '?') : '?';
         $urun  = $kd ? ($kd['urun_kodu'].' '.$kd['urun_adi']) : '?';
         logYaz($pdo,'guncelle','islendi','Kayıt depoya işlendi: '.$hedef.' — '.$urun.', '.($kd['miktar']??'?').'L', $toggle_id, ['islendi'=>0], ['islendi'=>1,'islendi_kullanici_id'=>$ku['id']], 'lite');
     } else {
-        $pdo->prepare("UPDATE records SET islendi=0, islendi_tarih=NULL, islendi_kullanici_id=NULL WHERE id=?")
-            ->execute([$toggle_id]);
-        $kd = $pdo->prepare("SELECT lk.*, u.urun_kodu, u.urun_adi, a.plaka, t.firma_adi FROM records lk JOIN products u ON lk.urun_id=u.id LEFT JOIN vehicles a ON lk.arac_id=a.id LEFT JOIN facilities t ON lk.tesis_id=t.id WHERE lk.id=?");
-        $kd->execute([$toggle_id]); $kd = $kd->fetch();
+        Islem::islendiIptal($pdo, $toggle_id);
+        $kd = Islem::genelKayitBul($pdo, $toggle_id);
         $hedef = $kd ? ($kd['plaka'] ?? $kd['firma_adi'] ?? '?') : '?';
         $urun  = $kd ? ($kd['urun_kodu'].' '.$kd['urun_adi']) : '?';
         logYaz($pdo,'guncelle','islendi','İşlendi işareti geri alındı: '.$hedef.' — '.$urun.', '.($kd['miktar']??'?').'L', $toggle_id, ['islendi'=>1], ['islendi'=>0], 'lite');
@@ -58,66 +59,47 @@ if (isset($_GET['islendi_toggle'])) {
     header('Location: transactions.php?' . http_build_query($qs)); exit;
 }
 
-$f_tarih_bas  = $_GET['tarih_bas']  ?? '';
-$f_tarih_bit  = $_GET['tarih_bit']  ?? '';
-$f_arac_id    = (int)($_GET['arac_id']   ?? 0);
-$f_tesis_id   = (int)($_GET['tesis_id']  ?? 0);
-$f_urun_id    = (int)($_GET['urun_id']   ?? 0);
-$f_tur     = in_array($_GET['tur']     ?? '', ['arac','tesis']) ? $_GET['tur'] : 'tumu';
-$f_islendi = in_array($_GET['islendi'] ?? '', ['islendi','islenmedi']) ? $_GET['islendi'] : 'tumu';
+$filtreler = [
+    'tarih_bas' => $_GET['tarih_bas']  ?? '',
+    'tarih_bit' => $_GET['tarih_bit']  ?? '',
+    'arac_id'   => (int)($_GET['arac_id']   ?? 0),
+    'tesis_id'  => (int)($_GET['tesis_id']  ?? 0),
+    'urun_id'   => (int)($_GET['urun_id']   ?? 0),
+    'tur'       => in_array($_GET['tur']     ?? '', ['arac','tesis']) ? $_GET['tur'] : 'tumu',
+    'islendi'   => in_array($_GET['islendi'] ?? '', ['islendi','islenmedi']) ? $_GET['islendi'] : 'tumu'
+];
 
-$where  = ["lk.aktif = 1"];
-$params = [];
+$f_tarih_bas = $filtreler['tarih_bas'];
+$f_tarih_bit = $filtreler['tarih_bit'];
+$f_arac_id   = $filtreler['arac_id'];
+$f_tesis_id  = $filtreler['tesis_id'];
+$f_urun_id   = $filtreler['urun_id'];
+$f_tur       = $filtreler['tur'];
+$f_islendi   = $filtreler['islendi'];
 
-if ($f_tarih_bas) { $where[] = "lk.tarih >= ?"; $params[] = $f_tarih_bas; }
-if ($f_tarih_bit) { $where[] = "lk.tarih <= ?"; $params[] = $f_tarih_bit; }
-if ($f_arac_id)   { $where[] = "lk.arac_id = ?"; $params[] = $f_arac_id; }
-if ($f_tesis_id)  { $where[] = "lk.tesis_id = ?"; $params[] = $f_tesis_id; }
-if ($f_urun_id)   { $where[] = "lk.urun_id = ?"; $params[] = $f_urun_id; }
-if ($f_tur === 'arac')  { $where[] = "lk.kayit_turu = 'arac'"; }
-elseif ($f_tur === 'tesis') { $where[] = "lk.kayit_turu = 'tesis'"; }
-if ($f_islendi === 'islendi')   { $where[] = "lk.islendi = 1"; }
-elseif ($f_islendi === 'islenmedi') { $where[] = "lk.islendi = 0"; }
-
-$where_sql = implode(" AND ", $where);
+$sartlar = Islem::aramaSartlariniOlustur($filtreler);
 
 $sayfa_basina = 50;
 $sayfa = max(1, (int)($_GET['sayfa'] ?? 1));
 
-$count_stmt = $pdo->prepare("SELECT COUNT(*), COUNT(CASE WHEN lk.kayit_turu='arac' THEN 1 END), COUNT(CASE WHEN lk.kayit_turu='tesis' THEN 1 END), COALESCE(SUM(lk.miktar),0) FROM records lk LEFT JOIN products u ON lk.urun_id=u.id WHERE $where_sql");
-$count_stmt->execute($params);
-$count_row = $count_stmt->fetch(PDO::FETCH_NUM);
-$toplam_islem  = (int)$count_row[0];
-$arac_islem    = (int)$count_row[1];
-$tesis_islem   = (int)$count_row[2];
-$toplam_litre  = (float)$count_row[3];
+$istatistik = Islem::istatistikGetir($pdo, $sartlar);
+$toplam_islem  = $istatistik['toplam'];
+$arac_islem    = $istatistik['arac'];
+$tesis_islem   = $istatistik['tesis'];
+$toplam_litre  = $istatistik['litre'];
 
 $toplam_sayfa = max(1, (int)ceil($toplam_islem / $sayfa_basina));
 $sayfa = min($sayfa, $toplam_sayfa);
 $offset = ($sayfa - 1) * $sayfa_basina;
 
-$kayitlar = $pdo->prepare("
-    SELECT lk.*, u.urun_adi, u.urun_kodu, a.plaka, a.marka_model, at.tur_adi AS arac_turu,
-           t.firma_adi, k.ad_soyad, ik.ad_soyad AS islendi_ad_soyad
-    FROM records lk
-    LEFT JOIN products u ON lk.urun_id = u.id
-    LEFT JOIN vehicles a ON lk.arac_id = a.id
-    LEFT JOIN vehicles_type at ON a.arac_turu_id = at.id
-    LEFT JOIN facilities t ON lk.tesis_id = t.id
-    LEFT JOIN users k ON lk.olusturan_id = k.id
-    LEFT JOIN users ik ON lk.islendi_kullanici_id = ik.id
-    WHERE $where_sql
-    ORDER BY lk.tarih DESC, lk.olusturma_tarihi DESC
-    LIMIT $sayfa_basina OFFSET $offset
-");
-$kayitlar->execute($params);
-$kayitlar = $kayitlar->fetchAll();
+$kayitlar = Islem::listeSayfalamali($pdo, $sartlar, $offset, $sayfa_basina);
 
-$bekleyen_sayisi = (int)$pdo->query("SELECT COUNT(*) FROM records WHERE aktif=1 AND islendi=0")->fetchColumn();
+$bekleyen_sayisi = Islem::bekleyenSayisi($pdo);
+$islenen_sayisi = Islem::islenenSayisi($pdo);
 
-$tum_araclar  = $pdo->query("SELECT id, plaka, marka_model FROM vehicles WHERE aktif=1 ORDER BY plaka")->fetchAll();
-$tum_tesisler = $pdo->query("SELECT id, firma_adi FROM facilities WHERE aktif=1 ORDER BY firma_adi")->fetchAll();
-$tum_urunler  = $pdo->query("SELECT id, urun_kodu, urun_adi FROM products WHERE aktif=1 ORDER BY urun_adi")->fetchAll();
+$tum_araclar  = Arac::listele($pdo);
+$tum_tesisler = Tesis::tumTesislerIdAd($pdo);
+$tum_urunler  = Urun::tumUrunler($pdo);
 
 $filtre_aktif = $f_tarih_bas || $f_tarih_bit || $f_arac_id || $f_tesis_id || $f_urun_id || $f_tur !== 'tumu' || $f_islendi !== 'tumu';
 
@@ -151,7 +133,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </a>
     <a href="transactions.php?islendi=islendi" class="stat-card success <?= $f_islendi==='islendi' ? 'active' : '' ?>" style="text-decoration:none;">
         <div class="stat-label">✅ İşlendi</div>
-        <div class="stat-value"><?= (int)$pdo->query("SELECT COUNT(*) FROM records WHERE aktif=1 AND islendi=1")->fetchColumn() ?></div>
+        <div class="stat-value"><?= $islenen_sayisi ?></div>
         <div class="stat-sub">Kayıt</div>
     </a>
 </div>

@@ -12,6 +12,7 @@
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/log.php';
+require_once __DIR__ . '/../../classes/SistemLog.php';
 adminKontrol();
 
 $sayfa_basligi = 'Sistem Logları';
@@ -20,7 +21,7 @@ $ku = mevcutKullanici();
 // ── TEK LOG SİL ──
 if (isset($_GET['log_sil']) && is_numeric($_GET['log_sil'])) {
     $log_id = (int)$_GET['log_sil'];
-    $pdo->prepare("DELETE FROM system_logs WHERE id=?")->execute([$log_id]);
+    SistemLog::sil($pdo, $log_id);
     flash('Log kaydı silindi.');
     $qs = $_GET; unset($qs['log_sil']);
     header('Location: logs.php?' . http_build_query($qs)); exit;
@@ -31,41 +32,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $mod = $_POST['toplu_sil_mod'] ?? '';
 
     if ($mod === 'tumü') {
-        // Tabloyu düşür ve yeniden oluştur — en hızlı temizleme yöntemi
-        $pdo->exec("DROP TABLE IF EXISTS `system_logs`");
-        $pdo->exec("CREATE TABLE `system_logs` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `kullanici_id` int(11) DEFAULT NULL,
-            `kullanici_adi` varchar(50) DEFAULT NULL,
-            `ad_soyad` varchar(100) DEFAULT NULL,
-            `sistem` enum('ana','lite') NOT NULL DEFAULT 'ana',
-            `aksiyon` enum('ekle','guncelle','sil','giris','cikis') NOT NULL,
-            `modul` varchar(50) NOT NULL,
-            `kayit_id` int(11) DEFAULT NULL,
-            `aciklama` text NOT NULL,
-            `eski_deger` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`eski_deger`)),
-            `yeni_deger` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`yeni_deger`)),
-            `ip_adresi` varchar(45) DEFAULT NULL,
-            `olusturma_tarihi` datetime NOT NULL DEFAULT current_timestamp(),
-            PRIMARY KEY (`id`),
-            KEY `kullanici_id` (`kullanici_id`),
-            CONSTRAINT `sistem_loglari_ibfk_1` FOREIGN KEY (`kullanici_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_turkish_ci");
+        SistemLog::tabloyuSifirla($pdo);
         flash('Tüm log kayıtları silindi, tablo sıfırlandı.');
 
     } elseif ($mod === 'tarih' && !empty($_POST['sil_tarih_bit'])) {
         $tarih = $_POST['sil_tarih_bit'];
-        $stmt  = $pdo->prepare("DELETE FROM system_logs WHERE sistem='lite' AND DATE(olusturma_tarihi) <= ?");
-        $stmt->execute([$tarih]);
-        flash($stmt->rowCount() . ' log kaydı silindi (' . date('d.m.Y', strtotime($tarih)) . ' tarihine kadar).');
+        $silinen = SistemLog::tariheKadarSil($pdo, $tarih);
+        flash($silinen . ' log kaydı silindi (' . date('d.m.Y', strtotime($tarih)) . ' tarihine kadar).');
 
     } elseif ($mod === 'secili' && !empty($_POST['log_ids'])) {
         $ids = array_values(array_filter(array_map('intval', (array)$_POST['log_ids'])));
         if (!empty($ids)) {
-            $ph   = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $pdo->prepare("DELETE FROM system_logs WHERE id IN ($ph) AND sistem='lite'");
-            $stmt->execute($ids);
-            flash($stmt->rowCount() . ' log kaydı silindi.');
+            $silinen = SistemLog::seciliSil($pdo, $ids);
+            flash($silinen . ' log kaydı silindi.');
         }
     }
     header('Location: logs.php'); exit;
@@ -105,20 +84,14 @@ if ($f_tarih_bit) {
 
 $where_sql = implode(" AND ", $where);
 
-$loglar = $pdo->prepare("
-    SELECT * FROM system_logs
-    WHERE $where_sql
-    ORDER BY olusturma_tarihi DESC
-    LIMIT 1000
-");
-$loglar->execute($params);
-$loglar = $loglar->fetchAll();
+$loglar = SistemLog::listele($pdo, $where_sql, $params, 1000);
 
 // Özet sayılar (bugün)
-$bugun      = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE sistem='lite' AND DATE(olusturma_tarihi)=CURDATE()")->fetchColumn();
-$bugun_sil  = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE sistem='lite' AND aksiyon='sil' AND DATE(olusturma_tarihi)=CURDATE()")->fetchColumn();
-$bugun_ekle = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE sistem='lite' AND aksiyon='ekle' AND DATE(olusturma_tarihi)=CURDATE()")->fetchColumn();
-$toplam     = $pdo->query("SELECT COUNT(*) FROM system_logs WHERE sistem='lite'")->fetchColumn();
+$istatistik = SistemLog::istatistikGetir($pdo);
+$bugun      = $istatistik['bugun'];
+$bugun_sil  = $istatistik['bugun_sil'];
+$bugun_ekle = $istatistik['bugun_ekle'];
+$toplam     = $istatistik['toplam'];
 
 $filtre_aktif = $f_kullanici || $f_aksiyon || $f_modul || $f_tarih_bas;
 
@@ -127,18 +100,7 @@ $kayit_id_listesi = array_filter(array_unique(array_column(
     array_filter($loglar, fn($l) => in_array($l['modul'], ['arac_kayit','islendi','tesis_kayit'])),
     'kayit_id'
 )));
-$kayit_hedef_map = []; // kayit_id => ['turu'=>'arac'|'tesis', 'hedef_id'=>X]
-if (!empty($kayit_id_listesi)) {
-    $ph = implode(',', array_fill(0, count($kayit_id_listesi), '?'));
-    $stmt = $pdo->prepare("SELECT id, kayit_turu, arac_id, tesis_id FROM records WHERE id IN ($ph)");
-    $stmt->execute(array_values($kayit_id_listesi));
-    foreach ($stmt->fetchAll() as $row) {
-        $kayit_hedef_map[$row['id']] = [
-            'turu'     => $row['kayit_turu'],
-            'hedef_id' => $row['kayit_turu'] === 'arac' ? $row['arac_id'] : $row['tesis_id'],
-        ];
-    }
-}
+$kayit_hedef_map = SistemLog::kayitHedefMapOlustur($pdo, $kayit_id_listesi);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>

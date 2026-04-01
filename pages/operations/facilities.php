@@ -11,20 +11,12 @@
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../classes/Tesis.php';
 girisKontrol();
 
 $sayfa_basligi = 'Tesisler';
 
-$tesisler = $pdo->query("
-    SELECT t.*,
-           COUNT(CASE WHEN lk.aktif = 1 THEN 1 END) AS kayit_sayisi,
-           MAX(CASE WHEN lk.aktif = 1 THEN lk.tarih END) AS son_kayit
-    FROM facilities t
-    LEFT JOIN records lk ON lk.tesis_id = t.id
-    WHERE t.aktif = 1
-    GROUP BY t.id
-    ORDER BY t.firma_adi
-")->fetchAll();
+    $tesisler = Tesis::listele($pdo);
 
 $arama = trim($_GET['q'] ?? '');
 if ($arama) {
